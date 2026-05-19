@@ -1,10 +1,11 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { ensureKeysFile, getKeysPath } = require('./generate-keys');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const KEYS_FILE = path.join(__dirname, 'keys.json');
+const KEYS_FILE = getKeysPath();
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
 app.use(express.json());
@@ -88,6 +89,14 @@ function activateRecord(record, hwid) {
 		message: 'License valid.',
 		firstActivation: false,
 	};
+}
+
+const keyBootstrap = ensureKeysFile({ keysPath: KEYS_FILE });
+if (keyBootstrap.created) {
+	console.log(`Generated ${keyBootstrap.count} new keys at ${KEYS_FILE}`);
+	console.log('Download keys-lifetime.txt and keys-monthly.txt from the server disk or Render shell.');
+} else {
+	console.log(`Using existing keys (${keyBootstrap.count}) at ${KEYS_FILE}`);
 }
 
 loadKeys();

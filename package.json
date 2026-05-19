@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "generate-keys": "node generate-keys.js"
+    "generate-keys": "node generate-keys.js",
+    "build": "npm install && node generate-keys.js"
   },
   "keywords": [],
   "author": "",

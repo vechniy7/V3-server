@@ -1,64 +1,85 @@
-# Nexus License Server
+# Nexus License Server (V3)
 
-Сервер активации для чита **Nexus** (тот же API, что у клиента: `POST /activate`).
+Сервер активации для **Nexus**: `POST /activate` с `{ "key", "hwid" }`.
 
-## Логика ключей
+## Ключи
 
-| Тип | Префикс | Срок |
-|-----|---------|------|
-| Навсегда | `NXS-L-...` | без срока |
-| 1 месяц | `NXS-M-...` | 30 дней с первой активации |
+| Тип | Формат | Срок |
+|-----|--------|------|
+| Навсегда | `NXS-L-XXXX-XXXX-XXXX-XXXX` | без срока |
+| 1 месяц | `NXS-M-XXXX-XXXX-XXXX-XXXX` | 30 дней с первой активации |
 
-- Ключ **привязывается к HWID** при первом входе.
-- Повторный запуск на **том же ПК** — успех (ключ не «сгорает» после 1 раза).
-- Другой ПК с тем же ключом — отказ.
-- Месячный ключ после истечения 30 дней — `Key expired.`
+- Привязка к **HWID** при первом входе.
+- Повторный запуск на **том же ПК** — ключ остаётся рабочим.
+- Другой ПК — отказ.
 
-## Генерация 200 ключей
+---
 
-```bash
-node generate-keys.js
-```
+## Render.com (пошагово)
 
-Создаёт `keys.json`: **100** lifetime + **100** monthly.
+У Render **два поля** — Build и Start. Вводить `&&` вручную не обязательно.
 
-## Запуск локально
+### Вариант A — проще всего (рекомендуется)
+
+| Поле | Значение |
+|------|----------|
+| **Build Command** | `npm install` |
+| **Start Command** | `npm start` |
+
+При **первом запуске** сервер сам создаст `keys.json` (100 + 100 ключей), если файла ещё нет.
+
+Файлы со списком ключей (на диске инстанса):
+
+- `keys-lifetime.txt`
+- `keys-monthly.txt`
+
+Скачать их можно через **Render Shell** (вкладка Shell у сервиса) или один раз при деплое посмотреть логи.
+
+### Вариант B — ключи уже на этапе сборки
+
+| Поле | Значение |
+|------|----------|
+| **Build Command** | `npm run build` |
+| **Start Command** | `npm start` |
+
+`npm run build` = `npm install` + создание `keys.json` (если его ещё нет).
+
+### Чтобы ключи не сбрасывались при перезапуске
+
+На Render диск **временный**. Подключите **Persistent Disk** (платно) и переменную:
+
+| Key | Value |
+|-----|-------|
+| `KEYS_FILE` | `/var/data/keys.json` |
+
+Mount path диска: `/var/data`
+
+Тогда ключи и активации сохраняются между рестартами.
+
+---
+
+## Локально
 
 ```bash
 npm install
-node generate-keys.js   # если keys.json ещё нет
 npm start
 ```
 
-Проверка:
+Или только сгенерировать ключи:
 
 ```bash
-curl -X POST http://localhost:3000/activate -H "Content-Type: application/json" -d "{\"key\":\"NXS-L-....\",\"hwid\":\"testhwid\"}"
+npm run generate-keys
 ```
 
-## Деплой (Render / VPS)
+Принудительно пересоздать ключи (осторожно — старые перестанут работать):
 
-1. Залить папку `nexus-server-main` на сервер.
-2. Выполнить `node generate-keys.js` один раз.
-3. `npm start` (или `node server.js`).
-4. URL в клиенте: `LicenseAuth.h` → `ACTIVATION_SERVER_URL`.
-
-**Важно:** на Render бесплатный диск **сбрасывается** при перезапуске. Для продакшена используйте VPS, Render Disk или внешнюю БД.
+```bash
+set FORCE_KEYS=1
+npm run generate-keys
+```
 
 ## API
 
-### `POST /activate`
+`POST /activate` — тело `{ "key": "NXS-L-...", "hwid": "..." }`
 
-Тело:
-
-```json
-{ "key": "NXS-L-XXXX-XXXX-XXXX-XXXX", "hwid": "..." }
-```
-
-Успех:
-
-```json
-{ "success": true, "message": "...", "type": "lifetime|monthly", "expiresAt": null }
-```
-
-Ошибки: `Invalid key.`, `Key is bound to another device.`, `Key expired.`
+Успех: `{ "success": true, "type": "lifetime|monthly", "expiresAt": null }`
