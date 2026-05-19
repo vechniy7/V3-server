@@ -1,0 +1,16 @@
+{
+  "name": "nexus-activation-server",
+  "version": "1.0.0",
+  "description": "Server for Nexus cheat key activation.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "generate-keys": "node generate-keys.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
