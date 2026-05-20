@@ -1,6 +1,3 @@
 node_modules/
-keys.json
-keys-lifetime.txt
-keys-monthly.txt
 *.tmp
 .env

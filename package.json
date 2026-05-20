@@ -1,12 +1,12 @@
 {
   "name": "nexus-activation-server",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "Server for Nexus cheat key activation.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "generate-keys": "node generate-keys.js",
-    "build": "npm install && node generate-keys.js"
+    "build": "npm install"
   },
   "keywords": [],
   "author": "",

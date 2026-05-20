@@ -1,35 +1,85 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { ensureKeysFile, getKeysPath } = require('./generate-keys');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const KEYS_FILE = getKeysPath();
+const KEYS_DIR = process.env.KEYS_DIR
+	? path.resolve(process.env.KEYS_DIR)
+	: path.join(__dirname, 'keys');
+
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+const TRIAL_MS = 5 * 60 * 1000;
+
+const KEY_FILES = [
+	{ file: 'lifetime.json', type: 'lifetime' },
+	{ file: 'monthly.json', type: 'monthly' },
+	{ file: 'trial-5min.json', type: 'trial' },
+];
 
 app.use(express.json());
 
 let keys = [];
 
 function loadKeys() {
-	try {
-		const raw = fs.readFileSync(KEYS_FILE, 'utf8');
-		keys = JSON.parse(raw);
-		if (!Array.isArray(keys)) {
-			throw new Error('keys.json must be an array');
-		}
-		console.log(`Loaded ${keys.length} keys from ${KEYS_FILE}`);
-	} catch (error) {
-		console.error(`Error loading keys: ${error.message}`);
+	keys = [];
+
+	if (!fs.existsSync(KEYS_DIR)) {
+		console.error(`Keys directory not found: ${KEYS_DIR}`);
 		process.exit(1);
 	}
+
+	for (const entry of KEY_FILES) {
+		const filePath = path.join(KEYS_DIR, entry.file);
+		if (!fs.existsSync(filePath)) {
+			console.error(`Missing key file: ${filePath}`);
+			process.exit(1);
+		}
+
+		let records;
+		try {
+			records = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+		} catch (error) {
+			console.error(`Invalid JSON in ${filePath}: ${error.message}`);
+			process.exit(1);
+		}
+
+		if (!Array.isArray(records)) {
+			console.error(`${filePath} must contain a JSON array`);
+			process.exit(1);
+		}
+
+		for (const record of records) {
+			record.type = record.type || entry.type;
+			record._sourceFile = entry.file;
+			keys.push(record);
+		}
+
+		console.log(`Loaded ${records.length} keys from keys/${entry.file}`);
+	}
+
+	console.log(`Total keys in memory: ${keys.length}`);
 }
 
 function saveKeys() {
-	const tmp = `${KEYS_FILE}.tmp`;
-	fs.writeFileSync(tmp, JSON.stringify(keys, null, 2), 'utf8');
-	fs.renameSync(tmp, KEYS_FILE);
+	const grouped = {};
+	for (const entry of KEY_FILES) {
+		grouped[entry.file] = [];
+	}
+
+	for (const record of keys) {
+		const file = record._sourceFile;
+		if (!file || !grouped[file]) continue;
+		const { _sourceFile, ...clean } = record;
+		grouped[file].push(clean);
+	}
+
+	for (const [file, records] of Object.entries(grouped)) {
+		const filePath = path.join(KEYS_DIR, file);
+		const tmp = `${filePath}.tmp`;
+		fs.writeFileSync(tmp, JSON.stringify(records, null, 2), 'utf8');
+		fs.renameSync(tmp, filePath);
+	}
 }
 
 function normalizeHwid(hwid) {
@@ -40,10 +90,14 @@ function normalizeKey(key) {
 	return String(key || '').trim().toUpperCase();
 }
 
+function expiryMsForType(type) {
+	if (type === 'monthly') return MONTH_MS;
+	if (type === 'trial') return TRIAL_MS;
+	return 0;
+}
+
 function isExpired(record) {
-	if (record.type !== 'monthly' || !record.expiresAt) {
-		return false;
-	}
+	if (!record.expiresAt) return false;
 	return new Date(record.expiresAt).getTime() <= Date.now();
 }
 
@@ -51,15 +105,14 @@ function activateRecord(record, hwid) {
 	const now = new Date();
 	const nowIso = now.toISOString();
 
-	// First activation on this key
 	if (record.status === 'unused' || !record.hwid) {
 		record.status = 'active';
 		record.hwid = hwid;
 		record.activatedAt = nowIso;
-		record.expiresAt =
-			record.type === 'monthly'
-				? new Date(now.getTime() + MONTH_MS).toISOString()
-				: null;
+
+		const duration = expiryMsForType(record.type);
+		record.expiresAt = duration > 0 ? new Date(now.getTime() + duration).toISOString() : null;
+
 		return {
 			ok: true,
 			message: 'Key activated successfully.',
@@ -67,7 +120,6 @@ function activateRecord(record, hwid) {
 		};
 	}
 
-	// Re-login on the same PC — key stays valid (not single-use)
 	if (record.hwid !== hwid) {
 		return {
 			ok: false,
@@ -91,21 +143,14 @@ function activateRecord(record, hwid) {
 	};
 }
 
-const keyBootstrap = ensureKeysFile({ keysPath: KEYS_FILE });
-if (keyBootstrap.created) {
-	console.log(`Generated ${keyBootstrap.count} new keys at ${KEYS_FILE}`);
-	console.log('Download keys-lifetime.txt and keys-monthly.txt from the server disk or Render shell.');
-} else {
-	console.log(`Using existing keys (${keyBootstrap.count}) at ${KEYS_FILE}`);
-}
-
 loadKeys();
 
 app.get('/', (_req, res) => {
 	res.json({
 		service: 'Nexus License Server',
-		version: '2.0.0',
+		version: '3.0.0',
 		endpoints: { activate: 'POST /activate' },
+		keyFiles: KEY_FILES.map((k) => k.file),
 	});
 });
 
@@ -115,11 +160,12 @@ app.get('/health', (_req, res) => {
 			acc.total += 1;
 			if (k.type === 'lifetime') acc.lifetime += 1;
 			if (k.type === 'monthly') acc.monthly += 1;
+			if (k.type === 'trial') acc.trial += 1;
 			if (k.status === 'unused') acc.unused += 1;
 			if (k.status === 'active') acc.active += 1;
 			return acc;
 		},
-		{ total: 0, lifetime: 0, monthly: 0, unused: 0, active: 0 }
+		{ total: 0, lifetime: 0, monthly: 0, trial: 0, unused: 0, active: 0 }
 	);
 	res.json({ ok: true, stats });
 });
@@ -135,11 +181,8 @@ app.post('/activate', (req, res) => {
 		return res.status(400).json({ success: false, message: 'HWID is required.' });
 	}
 
-	console.log(`Activate: key=${key.slice(0, 8)}... hwid=${hwid.slice(0, 12)}...`);
-
 	const index = keys.findIndex((k) => normalizeKey(k.key) === key);
 	if (index === -1) {
-		console.log('Key not found');
 		return res.status(401).json({ success: false, message: 'Invalid key.' });
 	}
 
@@ -147,7 +190,6 @@ app.post('/activate', (req, res) => {
 	const result = activateRecord(record, hwid);
 
 	if (!result.ok) {
-		console.log(`Denied: ${result.message}`);
 		return res.status(result.status || 401).json({
 			success: false,
 			message: result.message,
@@ -163,11 +205,6 @@ app.post('/activate', (req, res) => {
 			message: 'Server error during activation.',
 		});
 	}
-
-	console.log(
-		result.firstActivation ? 'First activation OK' : 'Re-validation OK',
-		`type=${record.type}`
-	);
 
 	return res.json({
 		success: true,
