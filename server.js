@@ -4,9 +4,13 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const KEYS_DIR = process.env.KEYS_DIR
+// Persisted storage location (Render free/redeploy often resets local FS).
+// If KEYS_DIR isn't configured, default to the common persistent mount.
+const BUNDLED_KEYS_DIR = path.join(__dirname, 'keys');
+const DEFAULT_PERSIST_KEYS_DIR = '/var/data/keys';
+let KEYS_DIR = process.env.KEYS_DIR
 	? path.resolve(process.env.KEYS_DIR)
-	: path.join(__dirname, 'keys');
+	: DEFAULT_PERSIST_KEYS_DIR;
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const TRIAL_MS = 5 * 60 * 1000;
@@ -21,8 +25,29 @@ app.use(express.json());
 
 let keys = [];
 
+function ensurePersistedKeysDir() {
+	// If the persisted directory isn't available (or not writable), fall back to bundled keys directory.
+	try {
+		if (!fs.existsSync(KEYS_DIR)) {
+			fs.mkdirSync(KEYS_DIR, { recursive: true });
+		}
+		for (const entry of KEY_FILES) {
+			const src = path.join(BUNDLED_KEYS_DIR, entry.file);
+			const dst = path.join(KEYS_DIR, entry.file);
+			if (!fs.existsSync(dst) && fs.existsSync(src)) {
+				fs.copyFileSync(src, dst);
+			}
+		}
+	} catch (e) {
+		console.error(`Failed to init persisted KEYS_DIR=${KEYS_DIR}: ${e.message}`);
+		KEYS_DIR = BUNDLED_KEYS_DIR;
+	}
+}
+
 function loadKeys() {
 	keys = [];
+
+	ensurePersistedKeysDir();
 
 	if (!fs.existsSync(KEYS_DIR)) {
 		console.error(`Keys directory not found: ${KEYS_DIR}`);
