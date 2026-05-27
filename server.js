@@ -1,111 +1,21 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { Redis } = require('@upstash/redis');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-// Persisted storage location (Render free/redeploy often resets local FS).
-// If KEYS_DIR isn't configured, default to the common persistent mount.
 const BUNDLED_KEYS_DIR = path.join(__dirname, 'keys');
-const DEFAULT_PERSIST_KEYS_DIR = '/var/data/keys';
-let KEYS_DIR = process.env.KEYS_DIR
-	? path.resolve(process.env.KEYS_DIR)
-	: DEFAULT_PERSIST_KEYS_DIR;
 
-const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
-const TRIAL_MS = 5 * 60 * 1000;
+const ADMIN_RESET_TOKEN = process.env.ADMIN_RESET_TOKEN || '';
 
-const KEY_FILES = [
-	{ file: 'lifetime.json', type: 'lifetime' },
-	{ file: 'monthly.json', type: 'monthly' },
-	{ file: 'trial-5min.json', type: 'trial' },
-];
+const PREFIX = process.env.REDIS_PREFIX || 'nexus:v3';
+const IMPORT_FLAG_KEY = `${PREFIX}:imported:lifetime:v1`;
+const LIC_PREFIX = `${PREFIX}:lic`; // ${LIC_PREFIX}:${key}
+
+const redis = Redis.fromEnv();
 
 app.use(express.json());
-
-let keys = [];
-
-function ensurePersistedKeysDir() {
-	// If the persisted directory isn't available (or not writable), fall back to bundled keys directory.
-	try {
-		if (!fs.existsSync(KEYS_DIR)) {
-			fs.mkdirSync(KEYS_DIR, { recursive: true });
-		}
-		for (const entry of KEY_FILES) {
-			const src = path.join(BUNDLED_KEYS_DIR, entry.file);
-			const dst = path.join(KEYS_DIR, entry.file);
-			if (!fs.existsSync(dst) && fs.existsSync(src)) {
-				fs.copyFileSync(src, dst);
-			}
-		}
-	} catch (e) {
-		console.error(`Failed to init persisted KEYS_DIR=${KEYS_DIR}: ${e.message}`);
-		KEYS_DIR = BUNDLED_KEYS_DIR;
-	}
-}
-
-function loadKeys() {
-	keys = [];
-
-	ensurePersistedKeysDir();
-
-	if (!fs.existsSync(KEYS_DIR)) {
-		console.error(`Keys directory not found: ${KEYS_DIR}`);
-		process.exit(1);
-	}
-
-	for (const entry of KEY_FILES) {
-		const filePath = path.join(KEYS_DIR, entry.file);
-		if (!fs.existsSync(filePath)) {
-			console.error(`Missing key file: ${filePath}`);
-			process.exit(1);
-		}
-
-		let records;
-		try {
-			records = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-		} catch (error) {
-			console.error(`Invalid JSON in ${filePath}: ${error.message}`);
-			process.exit(1);
-		}
-
-		if (!Array.isArray(records)) {
-			console.error(`${filePath} must contain a JSON array`);
-			process.exit(1);
-		}
-
-		for (const record of records) {
-			record.type = record.type || entry.type;
-			record._sourceFile = entry.file;
-			keys.push(record);
-		}
-
-		console.log(`Loaded ${records.length} keys from keys/${entry.file}`);
-	}
-
-	console.log(`Total keys in memory: ${keys.length}`);
-}
-
-function saveKeys() {
-	const grouped = {};
-	for (const entry of KEY_FILES) {
-		grouped[entry.file] = [];
-	}
-
-	for (const record of keys) {
-		const file = record._sourceFile;
-		if (!file || !grouped[file]) continue;
-		const { _sourceFile, ...clean } = record;
-		grouped[file].push(clean);
-	}
-
-	for (const [file, records] of Object.entries(grouped)) {
-		const filePath = path.join(KEYS_DIR, file);
-		const tmp = `${filePath}.tmp`;
-		fs.writeFileSync(tmp, JSON.stringify(records, null, 2), 'utf8');
-		fs.renameSync(tmp, filePath);
-	}
-}
 
 function normalizeHwid(hwid) {
 	return String(hwid || '').trim().toLowerCase();
@@ -115,130 +25,191 @@ function normalizeKey(key) {
 	return String(key || '').trim().toUpperCase();
 }
 
-function expiryMsForType(type) {
-	if (type === 'monthly') return MONTH_MS;
-	if (type === 'trial') return TRIAL_MS;
-	return 0;
+function isValidHwid(hwid) {
+	return /^[a-f0-9]{64}$/.test(hwid);
 }
 
-function isExpired(record) {
-	if (!record.expiresAt) return false;
-	return new Date(record.expiresAt).getTime() <= Date.now();
+function licHashKey(normalizedLicenseKey) {
+	return `${LIC_PREFIX}:${normalizedLicenseKey}`;
 }
 
-function activateRecord(record, hwid) {
-	const now = new Date();
-	const nowIso = now.toISOString();
-
-	if (record.status === 'unused' || !record.hwid) {
-		record.status = 'active';
-		record.hwid = hwid;
-		record.activatedAt = nowIso;
-
-		const duration = expiryMsForType(record.type);
-		record.expiresAt = duration > 0 ? new Date(now.getTime() + duration).toISOString() : null;
-
-		return {
-			ok: true,
-			message: 'Key activated successfully.',
-			firstActivation: true,
-		};
-	}
-
-	if (record.hwid !== hwid) {
-		return {
-			ok: false,
-			status: 403,
-			message: 'Key is bound to another device.',
-		};
-	}
-
-	if (isExpired(record)) {
-		return {
-			ok: false,
-			status: 401,
-			message: 'Key expired.',
-		};
-	}
-
-	return {
-		ok: true,
-		message: 'License valid.',
-		firstActivation: false,
-	};
+function maskKey(key) {
+	if (!key || key.length < 12) return '***';
+	return `${key.slice(0, 8)}...${key.slice(-4)}`;
 }
 
-loadKeys();
+function getClientIp(req) {
+	const forwarded = req.headers['x-forwarded-for'];
+	if (typeof forwarded === 'string' && forwarded.length > 0) return forwarded.split(',')[0].trim();
+	return req.socket?.remoteAddress || 'unknown';
+}
+
+function toSafeStr(s, maxLen) {
+	return String(s || 'unknown').slice(0, maxLen);
+}
+
+function logActivation(entry) {
+	console.log(JSON.stringify({ ts: new Date().toISOString(), ...entry }));
+}
+
+async function ensureLifetimeKeysImported() {
+	const already = await redis.get(IMPORT_FLAG_KEY);
+	if (already) return;
+
+	const filePath = path.join(BUNDLED_KEYS_DIR, 'lifetime.json');
+	if (!fs.existsSync(filePath)) throw new Error(`Missing key file: ${filePath}`);
+
+	const records = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+	if (!Array.isArray(records)) throw new Error(`Invalid keys JSON: ${filePath}`);
+
+	for (const record of records) {
+		const key = normalizeKey(record.key);
+		if (!key) continue;
+
+		const hkey = licHashKey(key);
+		const exists = await redis.exists(hkey);
+		if (!exists) {
+			const status = record.status === 'active' ? 'active' : 'unused';
+			const boundHwid = record.hwid ? normalizeHwid(record.hwid) : '';
+			const activatedAt = record.activatedAt ? String(record.activatedAt) : '';
+
+			await redis.hset(hkey, {
+				key,
+				type: 'lifetime',
+				status,
+				hwid: status === 'active' ? boundHwid : '',
+				activatedAt: status === 'active' ? activatedAt : '',
+			});
+		}
+	}
+
+	await redis.set(IMPORT_FLAG_KEY, '1');
+}
+
+const activateLua = `
+local k = KEYS[1]
+local hwid = ARGV[1]
+local now = ARGV[2]
+local status = redis.call('HGET', k, 'status')
+if (not status) then
+  return 'invalid_key'
+end
+if status == 'unused' then
+  local bound = redis.call('HGET', k, 'hwid')
+  if (not bound or bound == '') then
+    redis.call('HSET', k, 'status', 'active', 'hwid', hwid, 'activatedAt', now)
+    return 'activated'
+  end
+end
+if status == 'active' then
+  local bound = redis.call('HGET', k, 'hwid')
+  if bound == hwid then
+    return 'valid'
+  else
+    return 'bound|' .. tostring(bound)
+  end
+end
+return 'unknown|' .. tostring(status)
+`;
+const activateScript = redis.createScript(activateLua);
 
 app.get('/', (_req, res) => {
 	res.json({
 		service: 'Nexus License Server',
-		version: '3.0.0',
-		endpoints: { activate: 'POST /activate' },
-		keyFiles: KEY_FILES.map((k) => k.file),
+		version: '3.2.0-upstash',
+		endpoints: { activate: 'POST /activate', adminReset: 'POST /admin/reset (token required)' },
 	});
 });
 
 app.get('/health', (_req, res) => {
-	const stats = keys.reduce(
-		(acc, k) => {
-			acc.total += 1;
-			if (k.type === 'lifetime') acc.lifetime += 1;
-			if (k.type === 'monthly') acc.monthly += 1;
-			if (k.type === 'trial') acc.trial += 1;
-			if (k.status === 'unused') acc.unused += 1;
-			if (k.status === 'active') acc.active += 1;
-			return acc;
-		},
-		{ total: 0, lifetime: 0, monthly: 0, trial: 0, unused: 0, active: 0 }
-	);
-	res.json({ ok: true, stats });
+	res.json({ ok: true });
 });
 
-app.post('/activate', (req, res) => {
+app.post('/activate', async (req, res) => {
 	const key = normalizeKey(req.body?.key);
 	const hwid = normalizeHwid(req.body?.hwid);
+	const client = toSafeStr(req.body?.client, 64);
+
+	const ip = getClientIp(req);
+	const userAgent = toSafeStr(req.headers['user-agent'], 256);
+
+	const baseLog = { ip, client, userAgent, key, keyMasked: maskKey(key), hwid };
 
 	if (!key) {
+		logActivation({ ...baseLog, success: false, reason: 'missing_key', httpStatus: 400 });
 		return res.status(400).json({ success: false, message: 'Key is required.' });
 	}
 	if (!hwid) {
+		logActivation({ ...baseLog, success: false, reason: 'missing_hwid', httpStatus: 400 });
 		return res.status(400).json({ success: false, message: 'HWID is required.' });
 	}
-
-	const index = keys.findIndex((k) => normalizeKey(k.key) === key);
-	if (index === -1) {
-		return res.status(401).json({ success: false, message: 'Invalid key.' });
+	if (!isValidHwid(hwid)) {
+		logActivation({ ...baseLog, success: false, reason: 'invalid_hwid_format', httpStatus: 400 });
+		return res.status(400).json({ success: false, message: 'Invalid HWID format.' });
 	}
 
-	const record = keys[index];
-	const result = activateRecord(record, hwid);
-
-	if (!result.ok) {
-		return res.status(result.status || 401).json({
-			success: false,
-			message: result.message,
-		});
-	}
-
+	const licKey = licHashKey(key);
 	try {
-		saveKeys();
-	} catch (error) {
-		console.error(`Save error: ${error.message}`);
-		return res.status(500).json({
-			success: false,
-			message: 'Server error during activation.',
-		});
-	}
+		const nowIso = new Date().toISOString();
+		const result = await activateScript.eval([licKey], [hwid, nowIso]);
 
-	return res.json({
-		success: true,
-		message: result.message,
-		type: record.type,
-		expiresAt: record.expiresAt,
-	});
+		if (result === 'invalid_key') {
+			logActivation({ ...baseLog, success: false, reason: 'invalid_key', httpStatus: 401 });
+			return res.status(401).json({ success: false, message: 'Invalid key.' });
+		}
+		if (result === 'activated') {
+			logActivation({ ...baseLog, success: true, reason: 'activated', httpStatus: 200, firstActivation: true });
+			return res.json({ success: true, message: 'Key activated successfully.', type: 'lifetime', expiresAt: null });
+		}
+		if (result === 'valid') {
+			logActivation({ ...baseLog, success: true, reason: 'valid', httpStatus: 200, firstActivation: false });
+			return res.json({ success: true, message: 'License valid.', type: 'lifetime', expiresAt: null });
+		}
+		if (typeof result === 'string' && result.startsWith('bound|')) {
+			const bound = result.split('|')[1] || null;
+			logActivation({ ...baseLog, success: false, reason: 'bound_to_other_hwid', httpStatus: 403, boundHwid: bound });
+			return res.status(403).json({ success: false, message: 'Key is bound to another device.' });
+		}
+
+		logActivation({ ...baseLog, success: false, reason: 'unknown_result', httpStatus: 500, result: String(result) });
+		return res.status(500).json({ success: false, message: 'Server error.' });
+	} catch (e) {
+		logActivation({ ...baseLog, success: false, reason: 'redis_error', httpStatus: 500, error: String(e?.message || e) });
+		return res.status(500).json({ success: false, message: 'Server error during activation.' });
+	}
 });
 
-app.listen(PORT, () => {
-	console.log(`Nexus license server listening on port ${PORT}`);
+app.post('/admin/reset', async (req, res) => {
+	const tokenFromBody = req.body?.token;
+	const authHeader = req.headers?.authorization || '';
+	const tokenFromHeader = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : '';
+	const token = tokenFromBody || tokenFromHeader;
+
+	if (!ADMIN_RESET_TOKEN || token !== ADMIN_RESET_TOKEN) {
+		return res.status(401).json({ success: false, message: 'Unauthorized.' });
+	}
+
+	const key = normalizeKey(req.body?.key);
+	if (!key) return res.status(400).json({ success: false, message: 'key is required.' });
+
+	const hkey = licHashKey(key);
+	try {
+		const exists = await redis.exists(hkey);
+		if (!exists) return res.status(404).json({ success: false, message: 'Key not found.' });
+
+		await redis.hset(hkey, { status: 'unused', hwid: '', activatedAt: '' });
+		return res.json({ success: true, message: 'HWID binding reset for this key.' });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: 'Failed to reset key.' });
+	}
+});
+
+async function start() {
+	await ensureLifetimeKeysImported();
+	app.listen(PORT, () => console.log(`Nexus license server listening on port ${PORT}`));
+}
+
+start().catch((e) => {
+	console.error('Failed to start server:', e);
+	process.exit(1);
 });

@@ -9,11 +9,7 @@ const path = require('path');
 const KEYS_DIR = path.join(__dirname, 'keys');
 const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-const PLANS = [
-	{ id: 'lifetime', prefix: 'NXS-L', count: 500, json: 'lifetime.json', txt: 'lifetime.txt' },
-	{ id: 'monthly', prefix: 'NXS-M', count: 500, json: 'monthly.json', txt: 'monthly.txt' },
-	{ id: 'trial', prefix: 'NXS-T', count: 500, json: 'trial-5min.json', txt: 'trial-5min.txt' },
-];
+const PLAN = { id: 'lifetime', prefix: 'NXS-L', count: 500, json: 'lifetime.json', txt: 'lifetime.txt' };
 
 function randomSegment(length) {
 	const bytes = crypto.randomBytes(length);
@@ -52,21 +48,15 @@ function main() {
 	}
 
 	const globalSeen = new Set();
-	let total = 0;
+	const records = generatePlan(PLAN, globalSeen);
+	const jsonPath = path.join(KEYS_DIR, PLAN.json);
+	const txtPath = path.join(KEYS_DIR, PLAN.txt);
 
-	for (const plan of PLANS) {
-		const records = generatePlan(plan, globalSeen);
-		const jsonPath = path.join(KEYS_DIR, plan.json);
-		const txtPath = path.join(KEYS_DIR, plan.txt);
+	fs.writeFileSync(jsonPath, JSON.stringify(records, null, 2), 'utf8');
+	fs.writeFileSync(txtPath, records.map((r) => r.key).join('\n') + '\n', 'utf8');
 
-		fs.writeFileSync(jsonPath, JSON.stringify(records, null, 2), 'utf8');
-		fs.writeFileSync(txtPath, records.map((r) => r.key).join('\n') + '\n', 'utf8');
-
-		console.log(`${plan.id}: ${records.length} -> keys/${plan.json}, keys/${plan.txt}`);
-		total += records.length;
-	}
-
-	console.log(`Done. Total keys: ${total}`);
+	console.log(`${PLAN.id}: ${records.length} -> keys/${PLAN.json}, keys/${PLAN.txt}`);
+	console.log(`Done. Total keys: ${records.length}`);
 }
 
 main();
