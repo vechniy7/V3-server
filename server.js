@@ -205,8 +205,13 @@ app.post('/admin/reset', async (req, res) => {
 });
 
 async function start() {
-	await ensureLifetimeKeysImported();
-	app.listen(PORT, () => console.log(`Nexus license server listening on port ${PORT}`));
+ // IMPORTANT: Render expects the web service to bind its HTTP port quickly.
+ // Do not block startup on Redis import. Import runs in background.
+ app.listen(PORT, '0.0.0.0', () => console.log(`Nexus license server listening on port ${PORT}`));
+
+ ensureLifetimeKeysImported()
+  .then(() => console.log('Lifetime keys import: OK'))
+  .catch((e) => console.error('Lifetime keys import failed:', e));
 }
 
 start().catch((e) => {
