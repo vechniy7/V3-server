@@ -116,7 +116,7 @@ const activateScript = redis.createScript(activateLua);
 app.get('/', (_req, res) => {
 	res.json({
 		service: 'Nexus License Server',
-		version: '3.2.0-upstash',
+		version: '3.2.1-upstash',
 		endpoints: { activate: 'POST /activate', adminReset: 'POST /admin/reset (token required)' },
 	});
 });
@@ -125,15 +125,18 @@ app.get('/health', (_req, res) => {
 	res.json({ ok: true });
 });
 
+const REVOKED_MESSAGE = 'Ключ деактивирован владельцем: mastin1337';
+
 app.post('/activate', async (req, res) => {
 	const key = normalizeKey(req.body?.key);
 	const hwid = normalizeHwid(req.body?.hwid);
 	const client = toSafeStr(req.body?.client, 64);
+	const autoLogin = req.body?.autoLogin === true;
 
 	const ip = getClientIp(req);
 	const userAgent = toSafeStr(req.headers['user-agent'], 256);
 
-	const baseLog = { ip, client, userAgent, key, keyMasked: maskKey(key), hwid };
+	const baseLog = { ip, client, userAgent, key, keyMasked: maskKey(key), hwid, autoLogin };
 
 	if (!key) {
 		logActivation({ ...baseLog, success: false, reason: 'missing_key', httpStatus: 400 });
@@ -151,7 +154,37 @@ app.post('/activate', async (req, res) => {
 	const licKey = licHashKey(key);
 	try {
 		const nowIso = new Date().toISOString();
+
+		// Auto-login / heartbeat: never re-activate silently after admin HWID reset.
+		if (autoLogin) {
+			const record = await redis.hgetall(licKey);
+			if (!record || !record.status) {
+				logActivation({ ...baseLog, success: false, reason: 'invalid_key', httpStatus: 401 });
+				return res.status(401).json({ success: false, message: 'Invalid key.' });
+			}
+			if (record.resetAt) {
+				logActivation({ ...baseLog, success: false, reason: 'revoked_by_owner', httpStatus: 403 });
+				return res.status(403).json({
+					success: false,
+					code: 'revoked_by_owner',
+					message: REVOKED_MESSAGE,
+				});
+			}
+			if (record.status === 'unused') {
+				logActivation({ ...baseLog, success: false, reason: 'session_invalid', httpStatus: 403 });
+				return res.status(403).json({
+					success: false,
+					code: 'session_invalid',
+					message: REVOKED_MESSAGE,
+				});
+			}
+		}
+
 		const result = await activateScript.eval([licKey], [hwid, nowIso]);
+
+		if (result === 'activated' && !autoLogin) {
+			await redis.hset(licKey, { resetAt: '' });
+		}
 
 		if (result === 'invalid_key') {
 			logActivation({ ...baseLog, success: false, reason: 'invalid_key', httpStatus: 401 });
@@ -197,7 +230,12 @@ app.post('/admin/reset', async (req, res) => {
 		const exists = await redis.exists(hkey);
 		if (!exists) return res.status(404).json({ success: false, message: 'Key not found.' });
 
-		await redis.hset(hkey, { status: 'unused', hwid: '', activatedAt: '' });
+		await redis.hset(hkey, {
+			status: 'unused',
+			hwid: '',
+			activatedAt: '',
+			resetAt: new Date().toISOString(),
+		});
 		return res.json({ success: true, message: 'HWID binding reset for this key.' });
 	} catch (e) {
 		return res.status(500).json({ success: false, message: 'Failed to reset key.' });
