@@ -578,6 +578,9 @@ app.post('/admin/reset', requireAdmin, async (req, res) => {
 
 app.get('/release/latest', async (req, res) => {
 	try {
+		res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+		res.set('Pragma', 'no-cache');
+
 		const meta = await getReleaseMeta();
 		const clientVersion = String(req.query?.version || req.query?.client || '').replace(/^Nexus\//i, '').trim();
 
@@ -611,6 +614,9 @@ app.get('/release/latest', async (req, res) => {
 
 app.get('/release/download', async (_req, res) => {
 	try {
+		res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+		res.set('Pragma', 'no-cache');
+
 		const meta = await getReleaseMeta();
 		if (!meta?.chunkCount) {
 			return res.status(404).json({ success: false, message: 'No release published.' });
