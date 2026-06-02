@@ -1,22 +1,26 @@
 /**
- * One-time generator for keys/ folder (run locally: node generate-keys.js).
- * Not used by the server at startup.
+ * Offline key generator (run locally: node generate-keys.js).
+ * Server also creates keys via admin panel API.
  */
 const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
+const { PLAN_PREFIX } = require('./lib/licensePlans');
 
 const KEYS_DIR = path.join(__dirname, 'keys');
 const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-const PLAN = { id: 'lifetime', prefix: 'NXS-L', count: 500, json: 'lifetime.json', txt: 'lifetime.txt' };
+const PLANS = [
+	{ id: 'trial_2m', prefix: PLAN_PREFIX.trial_2m, count: 20, json: 'trial_2m.json', txt: 'trial_2m.txt' },
+	{ id: 'month_1', prefix: PLAN_PREFIX.month_1, count: 100, json: 'month_1.json', txt: 'month_1.txt' },
+	{ id: 'month_3', prefix: PLAN_PREFIX.month_3, count: 100, json: 'month_3.json', txt: 'month_3.txt' },
+	{ id: 'lifetime', prefix: PLAN_PREFIX.lifetime, count: 500, json: 'lifetime.json', txt: 'lifetime.txt' },
+];
 
 function randomSegment(length) {
 	const bytes = crypto.randomBytes(length);
 	let out = '';
-	for (let i = 0; i < length; i++) {
-		out += CHARSET[bytes[i] % CHARSET.length];
-	}
+	for (let i = 0; i < length; i++) out += CHARSET[bytes[i] % CHARSET.length];
 	return out;
 }
 
@@ -43,20 +47,19 @@ function generatePlan(plan, globalSeen) {
 }
 
 function main() {
-	if (!fs.existsSync(KEYS_DIR)) {
-		fs.mkdirSync(KEYS_DIR, { recursive: true });
-	}
+	if (!fs.existsSync(KEYS_DIR)) fs.mkdirSync(KEYS_DIR, { recursive: true });
 
 	const globalSeen = new Set();
-	const records = generatePlan(PLAN, globalSeen);
-	const jsonPath = path.join(KEYS_DIR, PLAN.json);
-	const txtPath = path.join(KEYS_DIR, PLAN.txt);
+	let total = 0;
 
-	fs.writeFileSync(jsonPath, JSON.stringify(records, null, 2), 'utf8');
-	fs.writeFileSync(txtPath, records.map((r) => r.key).join('\n') + '\n', 'utf8');
-
-	console.log(`${PLAN.id}: ${records.length} -> keys/${PLAN.json}, keys/${PLAN.txt}`);
-	console.log(`Done. Total keys: ${records.length}`);
+	for (const plan of PLANS) {
+		const records = generatePlan(plan, globalSeen);
+		fs.writeFileSync(path.join(KEYS_DIR, plan.json), JSON.stringify(records, null, 2), 'utf8');
+		fs.writeFileSync(path.join(KEYS_DIR, plan.txt), records.map((r) => r.key).join('\n') + '\n', 'utf8');
+		console.log(`${plan.id}: ${records.length} -> keys/${plan.json}`);
+		total += records.length;
+	}
+	console.log(`Done. Total keys: ${total}`);
 }
 
 main();

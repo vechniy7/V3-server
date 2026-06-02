@@ -1,49 +1,77 @@
-# Nexus License Server (V3)
+# Nexus License Server v4
 
-## Готовые ключи (папка `keys/`)
+Backend for **Nexus** cheat: license keys (Upstash Redis), admin panel, remote updates for the launcher.
 
-| Файл | Тип | Срок | Кол-во |
-|------|-----|------|--------|
-| `lifetime.json` / `lifetime.txt` | Навсегда (`NXS-L-...`) | без срока | 500 |
+**Hosting:** [Render.com](https://render.com) (web service) + [Upstash](https://upstash.com) (Redis).
 
-Сервер **не генерирует** ключи при запуске — только читает эти файлы.
+## Environment (Render → Environment)
 
-`.txt` — список ключей по одному на строку (для раздачи).  
-`.json` — база с активациями (HWID, срок, статус).
+| Variable | Description |
+|----------|-------------|
+| `UPSTASH_REDIS_REST_URL` | From Upstash console |
+| `UPSTASH_REDIS_REST_TOKEN` | From Upstash console |
+| `ADMIN_RESET_TOKEN` | Long random secret for admin API & panel login |
+| `REDIS_PREFIX` | Optional, default `nexus:v3` |
+| `PORT` | Set by Render automatically |
 
-## Render / Upstash
+Copy `.env.example` for local runs. **Never commit real tokens.**
 
-| Поле | Значение |
-|------|----------|
-| Build Command | `npm install` |
-| Start Command | `npm start` |
-| Publish Directory | пусто или `./` |
+## Deploy on Render
 
-Состояние ключей хранится в **Upstash Redis**, поэтому после sleep/restart/redeploy ничего не сбрасывается.
-Импорт lifetime ключей из `keys/lifetime.json` выполняется автоматически при старте (один раз).
+1. New **Web Service** → connect repo → root `V3-server-main`
+2. Build: `npm install`
+3. Start: `npm start`
+4. Add env vars above
+5. Open `https://YOUR-SERVICE.onrender.com/admin`
 
-## Пересоздать ключи (локально)
+## Admin panel
+
+URL: `/admin`
+
+- Login with `ADMIN_RESET_TOKEN`
+- Generate keys: **2 min**, **1 month**, **3 months**, **lifetime**
+- List / search keys, reset HWID, ban, delete
+- Upload `kernel32.exe` + version (stored in Redis, max ~12 MB)
+- Users get updates via launcher on startup
+
+## API (public)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/activate` | Activate / validate key + HWID |
+| GET | `/release/latest?version=2.2.0` | Check for update |
+| GET | `/release/download` | Download latest build |
+
+## API (admin, Bearer token)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/api/stats` | Stats |
+| GET | `/admin/api/licenses` | List keys |
+| POST | `/admin/api/licenses/generate` | Create keys `{ type, count }` |
+| POST | `/admin/reset` | Reset HWID `{ key }` |
+| POST | `/admin/api/licenses/ban` | Ban key |
+| POST | `/admin/api/release/upload` | Publish update |
+| DELETE | `/admin/api/release` | Remove update |
+
+Key types: `trial_2m`, `month_1`, `month_3`, `lifetime`
+
+## Local
 
 ```bash
-node generate-keys.js
+cd V3-server-main
+npm install
+# set UPSTASH_* and ADMIN_RESET_TOKEN
+npm start
 ```
 
-Затем закоммитьте папку `keys/` и запушьте.
+Generate offline key files:
 
-## API
+```bash
+npm run generate-keys
+```
 
-`POST /activate` — `{ "key": "NXS-L-...", "hwid": "<64 hex sha256>", "client": "Nexus/2.1.0" }`
+## Client
 
-## Админский сброс HWID
-
-`POST /admin/reset` — `{ "token": "<ADMIN_RESET_TOKEN>", "key": "NXS-L-..." }`
-
-или заголовок:
-`Authorization: Bearer <ADMIN_RESET_TOKEN>`
-
-## ENV (Render)
-
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
-- `ADMIN_RESET_TOKEN`
-- `REDIS_PREFIX` (опционально)
+Set the same host in `LicenseAuth.cpp` / `AppUpdate.cpp` as your Render URL.  
+Bump `NEXUS_APP_VERSION` in `AppVersion.h` when publishing a new build, then upload matching version in admin panel.

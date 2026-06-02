@@ -1,21 +1,38 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { Redis } = require('@upstash/redis');
+const {
+	PLAN_PREFIX,
+	PLAN_LABEL,
+	isValidPlanType,
+	computeExpiresAt,
+	isExpired,
+} = require('./lib/licensePlans');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const BUNDLED_KEYS_DIR = path.join(__dirname, 'keys');
+const ADMIN_DIR = path.join(__dirname, 'admin');
 
 const ADMIN_RESET_TOKEN = process.env.ADMIN_RESET_TOKEN || '';
-
 const PREFIX = process.env.REDIS_PREFIX || 'nexus:v3';
 const IMPORT_FLAG_KEY = `${PREFIX}:imported:lifetime:v1`;
-const LIC_PREFIX = `${PREFIX}:lic`; // ${LIC_PREFIX}:${key}
+const LIC_PREFIX = `${PREFIX}:lic`;
+const RELEASE_META_KEY = `${PREFIX}:release:meta`;
+const RELEASE_CHUNK_PREFIX = `${PREFIX}:release:chunk`;
+const STATS_KEY = `${PREFIX}:stats:activations`;
+
+const SERVER_VERSION = '4.0.0';
+const REVOKED_MESSAGE = 'Ключ деактивирован владельцем: mastin1337';
+const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+const CHUNK_RAW_BYTES = 700 * 1024;
 
 const redis = Redis.fromEnv();
 
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 function normalizeHwid(hwid) {
 	return String(hwid || '').trim().toLowerCase();
@@ -52,159 +69,258 @@ function logActivation(entry) {
 	console.log(JSON.stringify({ ts: new Date().toISOString(), ...entry }));
 }
 
+function getAdminToken(req) {
+	const authHeader = req.headers?.authorization || '';
+	if (authHeader.startsWith('Bearer ')) return authHeader.slice(7).trim();
+	return String(req.body?.token || req.query?.token || '').trim();
+}
+
+function requireAdmin(req, res, next) {
+	if (!ADMIN_RESET_TOKEN) {
+		return res.status(503).json({ success: false, message: 'ADMIN_RESET_TOKEN not configured.' });
+	}
+	if (getAdminToken(req) !== ADMIN_RESET_TOKEN) {
+		return res.status(401).json({ success: false, message: 'Unauthorized.' });
+	}
+	next();
+}
+
+function randomSegment(length) {
+	const bytes = crypto.randomBytes(length);
+	let out = '';
+	for (let i = 0; i < length; i++) out += CHARSET[bytes[i] % CHARSET.length];
+	return out;
+}
+
+function makeLicenseKey(type) {
+	const prefix = PLAN_PREFIX[type] || PLAN_PREFIX.lifetime;
+	return `${prefix}-${randomSegment(4)}-${randomSegment(4)}-${randomSegment(4)}-${randomSegment(4)}`;
+}
+
+function compareVersions(a, b) {
+	const pa = String(a).split('.').map((x) => parseInt(x, 10) || 0);
+	const pb = String(b).split('.').map((x) => parseInt(x, 10) || 0);
+	const n = Math.max(pa.length, pb.length);
+	for (let i = 0; i < n; i++) {
+		const da = pa[i] || 0;
+		const db = pb[i] || 0;
+		if (da > db) return 1;
+		if (da < db) return -1;
+	}
+	return 0;
+}
+
+async function recordToClient(record) {
+	if (!record) return null;
+	const type = record.type || 'lifetime';
+	return {
+		key: record.key,
+		type,
+		typeLabel: PLAN_LABEL[type] || type,
+		status: record.status || 'unknown',
+		hwid: record.hwid || '',
+		activatedAt: record.activatedAt || null,
+		expiresAt: record.expiresAt || null,
+		resetAt: record.resetAt || null,
+		banned: record.banned === '1',
+		expired: isExpired(record),
+	};
+}
+
+async function activateLicense(licKey, hwid, autoLogin) {
+	const record = await redis.hgetall(licKey);
+	if (!record || !record.status) return { code: 'invalid_key' };
+	if (record.banned === '1') return { code: 'banned' };
+
+	if (autoLogin) {
+		if (record.resetAt) return { code: 'revoked' };
+		if (record.status === 'unused') return { code: 'session_invalid' };
+	}
+
+	if (isExpired(record)) return { code: 'expired' };
+
+	const type = record.type || 'lifetime';
+	const nowIso = new Date().toISOString();
+
+	if (record.status === 'unused') {
+		const expiresAt = computeExpiresAt(type, nowIso);
+		await redis.hset(licKey, {
+			key: record.key || licKey.split(':').pop(),
+			type,
+			status: 'active',
+			hwid,
+			activatedAt: nowIso,
+			expiresAt: expiresAt || '',
+			resetAt: '',
+			banned: record.banned || '0',
+		});
+		return { code: 'activated', type, expiresAt: expiresAt || null };
+	}
+
+	if (record.status === 'active') {
+		if (normalizeHwid(record.hwid) !== hwid) {
+			return { code: 'bound', bound: record.hwid };
+		}
+		return {
+			code: 'valid',
+			type,
+			expiresAt: record.expiresAt || null,
+		};
+	}
+
+	return { code: 'unknown', status: record.status };
+}
+
 async function ensureLifetimeKeysImported() {
 	const already = await redis.get(IMPORT_FLAG_KEY);
 	if (already) return;
 
 	const filePath = path.join(BUNDLED_KEYS_DIR, 'lifetime.json');
-	if (!fs.existsSync(filePath)) throw new Error(`Missing key file: ${filePath}`);
+	if (!fs.existsSync(filePath)) return;
 
 	const records = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-	if (!Array.isArray(records)) throw new Error(`Invalid keys JSON: ${filePath}`);
+	if (!Array.isArray(records)) return;
 
 	for (const record of records) {
 		const key = normalizeKey(record.key);
 		if (!key) continue;
-
 		const hkey = licHashKey(key);
 		const exists = await redis.exists(hkey);
 		if (!exists) {
 			const status = record.status === 'active' ? 'active' : 'unused';
-			const boundHwid = record.hwid ? normalizeHwid(record.hwid) : '';
-			const activatedAt = record.activatedAt ? String(record.activatedAt) : '';
-
 			await redis.hset(hkey, {
 				key,
 				type: 'lifetime',
 				status,
-				hwid: status === 'active' ? boundHwid : '',
-				activatedAt: status === 'active' ? activatedAt : '',
+				hwid: status === 'active' && record.hwid ? normalizeHwid(record.hwid) : '',
+				activatedAt: status === 'active' && record.activatedAt ? String(record.activatedAt) : '',
+				expiresAt: '',
+				resetAt: '',
+				banned: '0',
 			});
 		}
 	}
-
 	await redis.set(IMPORT_FLAG_KEY, '1');
 }
 
-const activateLua = `
-local k = KEYS[1]
-local hwid = ARGV[1]
-local now = ARGV[2]
-local status = redis.call('HGET', k, 'status')
-if (not status) then
-  return 'invalid_key'
-end
-if status == 'unused' then
-  local bound = redis.call('HGET', k, 'hwid')
-  if (not bound or bound == '') then
-    redis.call('HSET', k, 'status', 'active', 'hwid', hwid, 'activatedAt', now)
-    return 'activated'
-  end
-end
-if status == 'active' then
-  local bound = redis.call('HGET', k, 'hwid')
-  if bound == hwid then
-    return 'valid'
-  else
-    return 'bound|' .. tostring(bound)
-  end
-end
-return 'unknown|' .. tostring(status)
-`;
-const activateScript = redis.createScript(activateLua);
+async function scanAllLicenses(limit = 500) {
+	const out = [];
+	let cursor = 0;
+	const pattern = `${LIC_PREFIX}:*`;
+
+	do {
+		const result = await redis.scan(cursor, { match: pattern, count: 100 });
+		const nextCursor = Number(result[0]);
+		const keys = result[1] || [];
+		cursor = nextCursor;
+
+		for (const hkey of keys) {
+			const record = await redis.hgetall(hkey);
+			if (record?.key) out.push(await recordToClient(record));
+			if (out.length >= limit) return out;
+		}
+	} while (cursor !== 0);
+
+	return out;
+}
+
+async function getReleaseMeta() {
+	const meta = await redis.get(RELEASE_META_KEY);
+	if (!meta) return null;
+	return typeof meta === 'string' ? JSON.parse(meta) : meta;
+}
+
+// --- Public ---
 
 app.get('/', (_req, res) => {
 	res.json({
 		service: 'Nexus License Server',
-		version: '3.2.1-upstash',
-		endpoints: { activate: 'POST /activate', adminReset: 'POST /admin/reset (token required)' },
+		version: SERVER_VERSION,
+		hosting: ['Upstash Redis', 'Render.com'],
+		endpoints: {
+			activate: 'POST /activate',
+			health: 'GET /health',
+			releaseLatest: 'GET /release/latest',
+			releaseDownload: 'GET /release/download',
+			adminPanel: 'GET /admin',
+		},
 	});
 });
 
 app.get('/health', (_req, res) => {
-	res.json({ ok: true });
+	res.json({ ok: true, version: SERVER_VERSION });
 });
-
-const REVOKED_MESSAGE = 'Ключ деактивирован владельцем: mastin1337';
 
 app.post('/activate', async (req, res) => {
 	const key = normalizeKey(req.body?.key);
 	const hwid = normalizeHwid(req.body?.hwid);
 	const client = toSafeStr(req.body?.client, 64);
 	const autoLogin = req.body?.autoLogin === true;
-
 	const ip = getClientIp(req);
 	const userAgent = toSafeStr(req.headers['user-agent'], 256);
-
 	const baseLog = { ip, client, userAgent, key, keyMasked: maskKey(key), hwid, autoLogin };
 
 	if (!key) {
 		logActivation({ ...baseLog, success: false, reason: 'missing_key', httpStatus: 400 });
 		return res.status(400).json({ success: false, message: 'Key is required.' });
 	}
-	if (!hwid) {
-		logActivation({ ...baseLog, success: false, reason: 'missing_hwid', httpStatus: 400 });
-		return res.status(400).json({ success: false, message: 'HWID is required.' });
-	}
-	if (!isValidHwid(hwid)) {
-		logActivation({ ...baseLog, success: false, reason: 'invalid_hwid_format', httpStatus: 400 });
+	if (!hwid || !isValidHwid(hwid)) {
+		logActivation({ ...baseLog, success: false, reason: 'invalid_hwid', httpStatus: 400 });
 		return res.status(400).json({ success: false, message: 'Invalid HWID format.' });
 	}
 
 	const licKey = licHashKey(key);
 	try {
-		const nowIso = new Date().toISOString();
+		const result = await activateLicense(licKey, hwid, autoLogin);
 
-		// Auto-login / heartbeat: never re-activate silently after admin HWID reset.
-		if (autoLogin) {
-			const record = await redis.hgetall(licKey);
-			if (!record || !record.status) {
-				logActivation({ ...baseLog, success: false, reason: 'invalid_key', httpStatus: 401 });
-				return res.status(401).json({ success: false, message: 'Invalid key.' });
-			}
-			if (record.resetAt) {
-				logActivation({ ...baseLog, success: false, reason: 'revoked_by_owner', httpStatus: 403 });
-				return res.status(403).json({
-					success: false,
-					code: 'revoked_by_owner',
-					message: REVOKED_MESSAGE,
-				});
-			}
-			if (record.status === 'unused') {
-				logActivation({ ...baseLog, success: false, reason: 'session_invalid', httpStatus: 403 });
-				return res.status(403).json({
-					success: false,
-					code: 'session_invalid',
-					message: REVOKED_MESSAGE,
-				});
-			}
-		}
-
-		const result = await activateScript.eval([licKey], [hwid, nowIso]);
-
-		if (result === 'activated' && !autoLogin) {
-			await redis.hset(licKey, { resetAt: '' });
-		}
-
-		if (result === 'invalid_key') {
+		if (result.code === 'invalid_key') {
 			logActivation({ ...baseLog, success: false, reason: 'invalid_key', httpStatus: 401 });
 			return res.status(401).json({ success: false, message: 'Invalid key.' });
 		}
-		if (result === 'activated') {
-			logActivation({ ...baseLog, success: true, reason: 'activated', httpStatus: 200, firstActivation: true });
-			return res.json({ success: true, message: 'Key activated successfully.', type: 'lifetime', expiresAt: null });
+		if (result.code === 'revoked' || result.code === 'session_invalid') {
+			logActivation({ ...baseLog, success: false, reason: result.code, httpStatus: 403 });
+			return res.status(403).json({
+				success: false,
+				code: result.code === 'revoked' ? 'revoked_by_owner' : 'session_invalid',
+				message: REVOKED_MESSAGE,
+			});
 		}
-		if (result === 'valid') {
-			logActivation({ ...baseLog, success: true, reason: 'valid', httpStatus: 200, firstActivation: false });
-			return res.json({ success: true, message: 'License valid.', type: 'lifetime', expiresAt: null });
+		if (result.code === 'banned') {
+			logActivation({ ...baseLog, success: false, reason: 'banned', httpStatus: 403 });
+			return res.status(403).json({ success: false, code: 'banned', message: 'Key is banned.' });
 		}
-		if (typeof result === 'string' && result.startsWith('bound|')) {
-			const bound = result.split('|')[1] || null;
-			logActivation({ ...baseLog, success: false, reason: 'bound_to_other_hwid', httpStatus: 403, boundHwid: bound });
+		if (result.code === 'expired') {
+			logActivation({ ...baseLog, success: false, reason: 'expired', httpStatus: 403 });
+			return res.status(403).json({ success: false, code: 'expired', message: 'License expired.' });
+		}
+		if (result.code === 'bound') {
+			logActivation({ ...baseLog, success: false, reason: 'bound', httpStatus: 403 });
 			return res.status(403).json({ success: false, message: 'Key is bound to another device.' });
 		}
+		if (result.code === 'activated' || result.code === 'valid') {
+			if (result.code === 'activated' && !autoLogin) {
+				await redis.hset(licKey, { resetAt: '' });
+			}
+			logActivation({
+				...baseLog,
+				success: true,
+				reason: result.code,
+				httpStatus: 200,
+				type: result.type,
+				expiresAt: result.expiresAt,
+			});
+			try {
+				await redis.incr(STATS_KEY);
+			} catch (_) { /* ignore */ }
+			return res.json({
+				success: true,
+				message: result.code === 'activated' ? 'Key activated successfully.' : 'License valid.',
+				type: result.type,
+				expiresAt: result.expiresAt,
+			});
+		}
 
-		logActivation({ ...baseLog, success: false, reason: 'unknown_result', httpStatus: 500, result: String(result) });
+		logActivation({ ...baseLog, success: false, reason: 'unknown', httpStatus: 500, detail: result });
 		return res.status(500).json({ success: false, message: 'Server error.' });
 	} catch (e) {
 		logActivation({ ...baseLog, success: false, reason: 'redis_error', httpStatus: 500, error: String(e?.message || e) });
@@ -212,16 +328,7 @@ app.post('/activate', async (req, res) => {
 	}
 });
 
-app.post('/admin/reset', async (req, res) => {
-	const tokenFromBody = req.body?.token;
-	const authHeader = req.headers?.authorization || '';
-	const tokenFromHeader = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : '';
-	const token = tokenFromBody || tokenFromHeader;
-
-	if (!ADMIN_RESET_TOKEN || token !== ADMIN_RESET_TOKEN) {
-		return res.status(401).json({ success: false, message: 'Unauthorized.' });
-	}
-
+app.post('/admin/reset', requireAdmin, async (req, res) => {
 	const key = normalizeKey(req.body?.key);
 	if (!key) return res.status(400).json({ success: false, message: 'key is required.' });
 
@@ -234,6 +341,7 @@ app.post('/admin/reset', async (req, res) => {
 			status: 'unused',
 			hwid: '',
 			activatedAt: '',
+			expiresAt: '',
 			resetAt: new Date().toISOString(),
 		});
 		return res.json({ success: true, message: 'HWID binding reset for this key.' });
@@ -242,17 +350,273 @@ app.post('/admin/reset', async (req, res) => {
 	}
 });
 
-async function start() {
- // IMPORTANT: Render expects the web service to bind its HTTP port quickly.
- // Do not block startup on Redis import. Import runs in background.
- app.listen(PORT, '0.0.0.0', () => console.log(`Nexus license server listening on port ${PORT}`));
+// --- Releases (public) ---
 
- ensureLifetimeKeysImported()
-  .then(() => console.log('Lifetime keys import: OK'))
-  .catch((e) => console.error('Lifetime keys import failed:', e));
+app.get('/release/latest', async (req, res) => {
+	try {
+		const meta = await getReleaseMeta();
+		const clientVersion = String(req.query?.version || req.query?.client || '').replace(/^Nexus\//i, '').trim();
+
+		if (!meta || !meta.version) {
+			return res.json({ success: true, updateAvailable: false, version: clientVersion || null });
+		}
+
+		const updateAvailable = clientVersion
+			? compareVersions(meta.version, clientVersion) > 0
+			: true;
+
+		const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+		const host = req.headers['x-forwarded-host'] || req.headers.host;
+		const baseUrl = host ? `${proto}://${host}` : '';
+
+		return res.json({
+			success: true,
+			updateAvailable,
+			version: meta.version,
+			clientVersion: clientVersion || null,
+			sha256: meta.sha256,
+			size: meta.size,
+			filename: meta.filename || 'kernel32.exe',
+			mandatory: meta.mandatory === true,
+			downloadUrl: `${baseUrl}/release/download`,
+		});
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.get('/release/download', async (_req, res) => {
+	try {
+		const meta = await getReleaseMeta();
+		if (!meta?.chunkCount) {
+			return res.status(404).json({ success: false, message: 'No release published.' });
+		}
+
+		const chunks = [];
+		for (let i = 0; i < meta.chunkCount; i++) {
+			const part = await redis.get(`${RELEASE_CHUNK_PREFIX}:${i}`);
+			if (!part) {
+				return res.status(500).json({ success: false, message: `Missing chunk ${i}.` });
+			}
+			chunks.push(Buffer.from(part, 'base64'));
+		}
+		const file = Buffer.concat(chunks);
+		if (meta.sha256 && crypto.createHash('sha256').update(file).digest('hex') !== meta.sha256) {
+			return res.status(500).json({ success: false, message: 'Release checksum mismatch.' });
+		}
+
+		const filename = meta.filename || 'kernel32.exe';
+		res.setHeader('Content-Type', 'application/octet-stream');
+		res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+		res.setHeader('Content-Length', file.length);
+		return res.send(file);
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+// --- Admin API ---
+
+app.get('/admin/api/stats', requireAdmin, async (_req, res) => {
+	try {
+		const activations = Number(await redis.get(STATS_KEY)) || 0;
+		const licenses = await scanAllLicenses(2000);
+		const summary = { total: licenses.length, unused: 0, active: 0, expired: 0, banned: 0 };
+		for (const lic of licenses) {
+			if (lic.banned) summary.banned++;
+			else if (lic.expired) summary.expired++;
+			else if (lic.status === 'active') summary.active++;
+			else if (lic.status === 'unused') summary.unused++;
+		}
+		const release = await getReleaseMeta();
+		return res.json({
+			success: true,
+			activations,
+			licenses: summary,
+			release: release
+				? { version: release.version, size: release.size, uploadedAt: release.uploadedAt, mandatory: release.mandatory }
+				: null,
+			plans: PLAN_LABEL,
+		});
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.get('/admin/api/licenses', requireAdmin, async (req, res) => {
+	try {
+		const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 200, 1), 2000);
+		const statusFilter = String(req.query?.status || '').toLowerCase();
+		const search = normalizeKey(req.query?.search || '');
+
+		let licenses = await scanAllLicenses(limit * 3);
+		if (search) licenses = licenses.filter((l) => l.key.includes(search));
+		if (statusFilter === 'active') licenses = licenses.filter((l) => l.status === 'active' && !l.expired);
+		if (statusFilter === 'unused') licenses = licenses.filter((l) => l.status === 'unused');
+		if (statusFilter === 'expired') licenses = licenses.filter((l) => l.expired);
+		if (statusFilter === 'banned') licenses = licenses.filter((l) => l.banned);
+
+		licenses = licenses.slice(0, limit);
+		return res.json({ success: true, licenses });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.post('/admin/api/licenses/generate', requireAdmin, async (req, res) => {
+	const type = String(req.body?.type || 'lifetime');
+	const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 1, 1), 500);
+	if (!isValidPlanType(type)) {
+		return res.status(400).json({ success: false, message: 'Invalid type. Use trial_2m, month_1, month_3, lifetime.' });
+	}
+
+	const created = [];
+	const seen = new Set();
+	try {
+		while (created.length < count) {
+			const key = makeLicenseKey(type);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			const hkey = licHashKey(key);
+			const exists = await redis.exists(hkey);
+			if (exists) continue;
+
+			await redis.hset(hkey, {
+				key,
+				type,
+				status: 'unused',
+				hwid: '',
+				activatedAt: '',
+				expiresAt: '',
+				resetAt: '',
+				banned: '0',
+			});
+			created.push({ key, type, typeLabel: PLAN_LABEL[type] });
+		}
+		return res.json({ success: true, count: created.length, keys: created });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.post('/admin/api/licenses/ban', requireAdmin, async (req, res) => {
+	const key = normalizeKey(req.body?.key);
+	if (!key) return res.status(400).json({ success: false, message: 'key required.' });
+	const hkey = licHashKey(key);
+	try {
+		if (!(await redis.exists(hkey))) return res.status(404).json({ success: false, message: 'Key not found.' });
+		await redis.hset(hkey, { banned: '1', status: 'unused', hwid: '', activatedAt: '', resetAt: new Date().toISOString() });
+		return res.json({ success: true, message: 'Key banned.' });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.post('/admin/api/licenses/unban', requireAdmin, async (req, res) => {
+	const key = normalizeKey(req.body?.key);
+	if (!key) return res.status(400).json({ success: false, message: 'key required.' });
+	const hkey = licHashKey(key);
+	try {
+		if (!(await redis.exists(hkey))) return res.status(404).json({ success: false, message: 'Key not found.' });
+		await redis.hset(hkey, { banned: '0', resetAt: '' });
+		return res.json({ success: true, message: 'Key unbanned.' });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.delete('/admin/api/licenses', requireAdmin, async (req, res) => {
+	const key = normalizeKey(req.body?.key || req.query?.key);
+	if (!key) return res.status(400).json({ success: false, message: 'key required.' });
+	try {
+		await redis.del(licHashKey(key));
+		return res.json({ success: true, message: 'Key deleted.' });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.post('/admin/api/release/upload', requireAdmin, async (req, res) => {
+	const version = String(req.body?.version || '').trim();
+	const mandatory = req.body?.mandatory === true;
+	const filename = String(req.body?.filename || 'kernel32.exe').replace(/[^\w.\-]/g, '_');
+	const fileBase64 = String(req.body?.fileBase64 || '');
+
+	if (!version) return res.status(400).json({ success: false, message: 'version required.' });
+	if (!fileBase64) return res.status(400).json({ success: false, message: 'fileBase64 required.' });
+
+	try {
+		const raw = Buffer.from(fileBase64, 'base64');
+		if (!raw.length) return res.status(400).json({ success: false, message: 'Empty file.' });
+		if (raw.length > MAX_UPLOAD_BYTES) {
+			return res.status(400).json({ success: false, message: `File too large (max ${MAX_UPLOAD_BYTES} bytes).` });
+		}
+
+		const sha256 = crypto.createHash('sha256').update(raw).digest('hex');
+		const chunkCount = Math.ceil(raw.length / CHUNK_RAW_BYTES);
+
+		const oldMeta = await getReleaseMeta();
+		if (oldMeta?.chunkCount) {
+			for (let i = 0; i < oldMeta.chunkCount; i++) {
+				await redis.del(`${RELEASE_CHUNK_PREFIX}:${i}`);
+			}
+		}
+
+		for (let i = 0; i < chunkCount; i++) {
+			const slice = raw.subarray(i * CHUNK_RAW_BYTES, (i + 1) * CHUNK_RAW_BYTES);
+			await redis.set(`${RELEASE_CHUNK_PREFIX}:${i}`, slice.toString('base64'));
+		}
+
+		const meta = {
+			version,
+			sha256,
+			size: raw.length,
+			filename,
+			chunkCount,
+			mandatory,
+			uploadedAt: new Date().toISOString(),
+		};
+		await redis.set(RELEASE_META_KEY, JSON.stringify(meta));
+
+		return res.json({ success: true, message: 'Release published.', release: meta });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.delete('/admin/api/release', requireAdmin, async (_req, res) => {
+	try {
+		const meta = await getReleaseMeta();
+		if (meta?.chunkCount) {
+			for (let i = 0; i < meta.chunkCount; i++) {
+				await redis.del(`${RELEASE_CHUNK_PREFIX}:${i}`);
+			}
+		}
+		await redis.del(RELEASE_META_KEY);
+		return res.json({ success: true, message: 'Release removed.' });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+// Admin UI
+app.use('/admin', express.static(ADMIN_DIR));
+app.get('/admin', (_req, res) => {
+	res.sendFile(path.join(ADMIN_DIR, 'index.html'));
+});
+
+async function start() {
+	app.listen(PORT, '0.0.0.0', () => {
+		console.log(`Nexus license server v${SERVER_VERSION} on port ${PORT}`);
+		console.log(`Admin panel: http://localhost:${PORT}/admin`);
+	});
+
+	ensureLifetimeKeysImported()
+		.then(() => console.log('Bundled lifetime keys import: OK'))
+		.catch((e) => console.error('Bundled keys import:', e?.message || e));
 }
 
 start().catch((e) => {
-	console.error('Failed to start server:', e);
+	console.error('Failed to start:', e);
 	process.exit(1);
 });
