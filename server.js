@@ -29,6 +29,13 @@ const LIC_PREFIX = `${PREFIX}:lic`;
 const RELEASE_META_KEY = `${PREFIX}:release:meta`;
 const RELEASE_CHUNK_PREFIX = `${PREFIX}:release:chunk`;
 const STATS_KEY = `${PREFIX}:stats:activations`;
+const INDEX_FLAG_KEY = `${PREFIX}:indexes:v2`;
+const IDX_ALL = `${PREFIX}:idx:all`;
+const IDX_UNUSED = `${PREFIX}:idx:unused`;
+const IDX_ACTIVE = `${PREFIX}:idx:active`;
+const IDX_EXPIRED = `${PREFIX}:idx:expired`;
+const IDX_BANNED = `${PREFIX}:idx:banned`;
+const INDEX_SETS = [IDX_ALL, IDX_UNUSED, IDX_ACTIVE, IDX_EXPIRED, IDX_BANNED];
 
 const SERVER_VERSION = '4.0.0';
 const REVOKED_MESSAGE = 'Ключ деактивирован владельцем: mastin1337';
@@ -133,6 +140,181 @@ async function recordToClient(record) {
 	};
 }
 
+function licenseKeyFromHkey(hkey) {
+	const prefix = `${LIC_PREFIX}:`;
+	if (!hkey.startsWith(prefix)) return '';
+	return hkey.slice(prefix.length);
+}
+
+function licenseBucket(record) {
+	if (!record?.status) return null;
+	if (record.banned === '1') return 'banned';
+	if (isExpired(record)) return 'expired';
+	if (record.status === 'active') return 'active';
+	if (record.status === 'unused') return 'unused';
+	return 'unused';
+}
+
+function indexSetForBucket(bucket) {
+	if (bucket === 'unused') return IDX_UNUSED;
+	if (bucket === 'active') return IDX_ACTIVE;
+	if (bucket === 'expired') return IDX_EXPIRED;
+	if (bucket === 'banned') return IDX_BANNED;
+	return null;
+}
+
+async function syncLicenseIndex(licKey, record) {
+	const key = normalizeKey(record?.key || licenseKeyFromHkey(licKey));
+	const bucket = licenseBucket(record);
+	if (!key || !bucket) return;
+
+	const pipe = redis.pipeline();
+	pipe.sadd(IDX_ALL, key);
+	for (const setKey of INDEX_SETS) {
+		if (setKey !== IDX_ALL) pipe.srem(setKey, key);
+	}
+	pipe.sadd(indexSetForBucket(bucket), key);
+	await pipe.exec();
+}
+
+async function removeLicenseIndex(key) {
+	const normalized = normalizeKey(key);
+	if (!normalized) return;
+	const pipe = redis.pipeline();
+	for (const setKey of INDEX_SETS) pipe.srem(setKey, normalized);
+	await pipe.exec();
+}
+
+async function getLicenseStats() {
+	const [total, unused, active, expired, banned] = await Promise.all([
+		redis.scard(IDX_ALL),
+		redis.scard(IDX_UNUSED),
+		redis.scard(IDX_ACTIVE),
+		redis.scard(IDX_EXPIRED),
+		redis.scard(IDX_BANNED),
+	]);
+	return { total, unused, active, expired, banned };
+}
+
+async function recordsFromKeys(keys) {
+	if (!keys.length) return [];
+	const pipe = redis.pipeline();
+	for (const key of keys) pipe.hgetall(licHashKey(key));
+	const results = await pipe.exec();
+	const out = [];
+	for (const record of results) {
+		if (record?.key) out.push(await recordToClient(record));
+	}
+	return out;
+}
+
+async function reconcileExpiredIndexes(maxKeys = 500) {
+	const activeKeys = await redis.smembers(IDX_ACTIVE);
+	if (!activeKeys.length) return 0;
+
+	let moved = 0;
+	for (let i = 0; i < activeKeys.length && moved < maxKeys; i += 50) {
+		const chunk = activeKeys.slice(i, i + 50);
+		const pipe = redis.pipeline();
+		for (const key of chunk) pipe.hgetall(licHashKey(key));
+		const records = await pipe.exec();
+		for (let j = 0; j < chunk.length; j++) {
+			const record = records[j];
+			if (!record?.key || !isExpired(record)) continue;
+			await syncLicenseIndex(licHashKey(chunk[j]), record);
+			moved++;
+		}
+	}
+	return moved;
+}
+
+async function listLicensesPage({ statusFilter, search, page, limit }) {
+	if (search) {
+		const exact = await redis.hgetall(licHashKey(search));
+		if (exact?.key) {
+			const bucket = licenseBucket(exact);
+			if (!statusFilter || bucket === statusFilter) {
+				return {
+					licenses: [await recordToClient(exact)],
+					total: 1,
+					page: 0,
+					limit,
+					hasMore: false,
+				};
+			}
+			return { licenses: [], total: 0, page: 0, limit, hasMore: false };
+		}
+
+		const pool = statusFilter
+			? await redis.smembers(indexSetForBucket(statusFilter))
+			: await redis.smembers(IDX_ALL);
+		const matched = pool.filter((k) => k.includes(search)).sort();
+		const total = matched.length;
+		const start = page * limit;
+		const pageKeys = matched.slice(start, start + limit);
+		const licenses = await recordsFromKeys(pageKeys);
+		return { licenses, total, page, limit, hasMore: start + limit < total };
+	}
+
+	const idxKey = statusFilter ? indexSetForBucket(statusFilter) : IDX_ALL;
+	if (!idxKey) {
+		return { licenses: [], total: 0, page, limit, hasMore: false };
+	}
+
+	const allKeys = await redis.smembers(idxKey);
+	const total = allKeys.length;
+	const sorted = allKeys.sort();
+	const start = page * limit;
+	const pageKeys = sorted.slice(start, start + limit);
+	const licenses = await recordsFromKeys(pageKeys);
+
+	return {
+		licenses,
+		total,
+		page,
+		limit,
+		hasMore: start + limit < total,
+	};
+}
+
+async function rebuildLicenseIndexes() {
+	const already = await redis.get(INDEX_FLAG_KEY);
+	if (already) return 0;
+
+	await redis.del(...INDEX_SETS);
+
+	let indexed = 0;
+	let cursor = 0;
+	const pattern = `${LIC_PREFIX}:*`;
+
+	do {
+		const result = await redis.scan(cursor, { match: pattern, count: 100 });
+		cursor = Number(result[0]);
+		const hkeys = result[1] || [];
+		if (!hkeys.length) continue;
+
+		const readPipe = redis.pipeline();
+		for (const hkey of hkeys) readPipe.hgetall(hkey);
+		const records = await readPipe.exec();
+
+		const indexPipe = redis.pipeline();
+		for (let i = 0; i < hkeys.length; i++) {
+			const record = records[i];
+			if (!record?.key) continue;
+			const key = normalizeKey(record.key);
+			const bucket = licenseBucket(record);
+			if (!key || !bucket) continue;
+			indexPipe.sadd(IDX_ALL, key);
+			indexPipe.sadd(indexSetForBucket(bucket), key);
+			indexed++;
+		}
+		await indexPipe.exec();
+	} while (cursor !== 0);
+
+	await redis.set(INDEX_FLAG_KEY, String(indexed));
+	return indexed;
+}
+
 async function activateLicense(licKey, hwid, autoLogin) {
 	const record = await redis.hgetall(licKey);
 	if (!record || !record.status) return { code: 'invalid_key' };
@@ -150,8 +332,8 @@ async function activateLicense(licKey, hwid, autoLogin) {
 
 	if (record.status === 'unused') {
 		const expiresAt = computeExpiresAt(type, nowIso);
-		await redis.hset(licKey, {
-			key: record.key || licKey.split(':').pop(),
+		const updated = {
+			key: record.key || licenseKeyFromHkey(licKey),
 			type,
 			status: 'active',
 			hwid,
@@ -159,7 +341,9 @@ async function activateLicense(licKey, hwid, autoLogin) {
 			expiresAt: expiresAt || '',
 			resetAt: '',
 			banned: record.banned || '0',
-		});
+		};
+		await redis.hset(licKey, updated);
+		await syncLicenseIndex(licKey, updated);
 		return { code: 'activated', type, expiresAt: expiresAt || null };
 	}
 
@@ -197,13 +381,14 @@ async function importBundledChunk(records, type) {
 		const existsResults = await existsPipe.exec();
 
 		const writePipe = redis.pipeline();
+		const toIndex = [];
 		for (let j = 0; j < entries.length; j++) {
 			const existed = existsResults?.[j];
 			if (existed) continue;
 
 			const { key, hkey, record } = entries[j];
 			const status = record.status === 'active' ? 'active' : 'unused';
-			writePipe.hset(hkey, {
+			const fields = {
 				key,
 				type: record.type && isValidPlanType(record.type) ? record.type : type,
 				status,
@@ -212,10 +397,26 @@ async function importBundledChunk(records, type) {
 				expiresAt: status === 'active' && record.expiresAt ? String(record.expiresAt) : '',
 				resetAt: '',
 				banned: '0',
-			});
+			};
+			writePipe.hset(hkey, fields);
+			toIndex.push({ hkey, fields });
 			imported++;
 		}
 		await writePipe.exec();
+
+		if (toIndex.length) {
+			const indexPipe = redis.pipeline();
+			for (const { hkey, fields } of toIndex) {
+				const key = fields.key;
+				const bucket = licenseBucket(fields);
+				indexPipe.sadd(IDX_ALL, key);
+				for (const setKey of INDEX_SETS) {
+					if (setKey !== IDX_ALL) indexPipe.srem(setKey, key);
+				}
+				indexPipe.sadd(indexSetForBucket(bucket), key);
+			}
+			await indexPipe.exec();
+		}
 	}
 
 	return imported;
@@ -239,27 +440,6 @@ async function ensureBundledKeysImported() {
 
 	await redis.set(IMPORT_FLAG_KEY, String(imported));
 	return imported;
-}
-
-async function scanAllLicenses(limit = 500) {
-	const out = [];
-	let cursor = 0;
-	const pattern = `${LIC_PREFIX}:*`;
-
-	do {
-		const result = await redis.scan(cursor, { match: pattern, count: 100 });
-		const nextCursor = Number(result[0]);
-		const keys = result[1] || [];
-		cursor = nextCursor;
-
-		for (const hkey of keys) {
-			const record = await redis.hgetall(hkey);
-			if (record?.key) out.push(await recordToClient(record));
-			if (out.length >= limit) return out;
-		}
-	} while (cursor !== 0);
-
-	return out;
 }
 
 async function getReleaseMeta() {
@@ -375,13 +555,19 @@ app.post('/admin/reset', requireAdmin, async (req, res) => {
 		const exists = await redis.exists(hkey);
 		if (!exists) return res.status(404).json({ success: false, message: 'Key not found.' });
 
-		await redis.hset(hkey, {
+		const prev = await redis.hgetall(hkey);
+		const updated = {
+			...prev,
+			key,
 			status: 'unused',
 			hwid: '',
 			activatedAt: '',
 			expiresAt: '',
 			resetAt: new Date().toISOString(),
-		});
+			banned: prev.banned || '0',
+		};
+		await redis.hset(hkey, updated);
+		await syncLicenseIndex(hkey, updated);
 		return res.json({ success: true, message: 'HWID binding reset for this key.' });
 	} catch (e) {
 		return res.status(500).json({ success: false, message: 'Failed to reset key.' });
@@ -458,14 +644,8 @@ app.get('/release/download', async (_req, res) => {
 app.get('/admin/api/stats', requireAdmin, async (_req, res) => {
 	try {
 		const activations = Number(await redis.get(STATS_KEY)) || 0;
-		const licenses = await scanAllLicenses(2000);
-		const summary = { total: licenses.length, unused: 0, active: 0, expired: 0, banned: 0 };
-		for (const lic of licenses) {
-			if (lic.banned) summary.banned++;
-			else if (lic.expired) summary.expired++;
-			else if (lic.status === 'active') summary.active++;
-			else if (lic.status === 'unused') summary.unused++;
-		}
+		await reconcileExpiredIndexes(200);
+		const summary = await getLicenseStats();
 		const release = await getReleaseMeta();
 		return res.json({
 			success: true,
@@ -483,19 +663,38 @@ app.get('/admin/api/stats', requireAdmin, async (_req, res) => {
 
 app.get('/admin/api/licenses', requireAdmin, async (req, res) => {
 	try {
-		const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 200, 1), 2000);
+		const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 50, 1), 200);
+		const page = Math.max(parseInt(req.query?.page, 10) || 0, 0);
 		const statusFilter = String(req.query?.status || '').toLowerCase();
 		const search = normalizeKey(req.query?.search || '');
 
-		let licenses = await scanAllLicenses(limit * 3);
-		if (search) licenses = licenses.filter((l) => l.key.includes(search));
-		if (statusFilter === 'active') licenses = licenses.filter((l) => l.status === 'active' && !l.expired);
-		if (statusFilter === 'unused') licenses = licenses.filter((l) => l.status === 'unused');
-		if (statusFilter === 'expired') licenses = licenses.filter((l) => l.expired);
-		if (statusFilter === 'banned') licenses = licenses.filter((l) => l.banned);
+		const allowed = new Set(['', 'unused', 'active', 'expired', 'banned']);
+		if (!allowed.has(statusFilter)) {
+			return res.status(400).json({ success: false, message: 'Invalid status filter.' });
+		}
 
-		licenses = licenses.slice(0, limit);
-		return res.json({ success: true, licenses });
+		if (statusFilter === 'expired') await reconcileExpiredIndexes(500);
+
+		const result = await listLicensesPage({
+			statusFilter: statusFilter || null,
+			search,
+			page,
+			limit,
+		});
+
+		return res.json({ success: true, ...result });
+	} catch (e) {
+		return res.status(500).json({ success: false, message: String(e?.message || e) });
+	}
+});
+
+app.post('/admin/api/licenses/rebuild-index', requireAdmin, async (_req, res) => {
+	try {
+		await redis.del(INDEX_FLAG_KEY);
+		const count = await rebuildLicenseIndexes();
+		await reconcileExpiredIndexes(2000);
+		const summary = await getLicenseStats();
+		return res.json({ success: true, indexed: count, licenses: summary });
 	} catch (e) {
 		return res.status(500).json({ success: false, message: String(e?.message || e) });
 	}
@@ -519,7 +718,7 @@ app.post('/admin/api/licenses/generate', requireAdmin, async (req, res) => {
 			const exists = await redis.exists(hkey);
 			if (exists) continue;
 
-			await redis.hset(hkey, {
+			const fields = {
 				key,
 				type,
 				status: 'unused',
@@ -528,7 +727,9 @@ app.post('/admin/api/licenses/generate', requireAdmin, async (req, res) => {
 				expiresAt: '',
 				resetAt: '',
 				banned: '0',
-			});
+			};
+			await redis.hset(hkey, fields);
+			await syncLicenseIndex(hkey, fields);
 			created.push({ key, type, typeLabel: PLAN_LABEL[type] });
 		}
 		return res.json({ success: true, count: created.length, keys: created });
@@ -543,7 +744,18 @@ app.post('/admin/api/licenses/ban', requireAdmin, async (req, res) => {
 	const hkey = licHashKey(key);
 	try {
 		if (!(await redis.exists(hkey))) return res.status(404).json({ success: false, message: 'Key not found.' });
-		await redis.hset(hkey, { banned: '1', status: 'unused', hwid: '', activatedAt: '', resetAt: new Date().toISOString() });
+		const record = await redis.hgetall(hkey);
+		const updated = {
+			...record,
+			key,
+			banned: '1',
+			status: 'unused',
+			hwid: '',
+			activatedAt: '',
+			resetAt: new Date().toISOString(),
+		};
+		await redis.hset(hkey, updated);
+		await syncLicenseIndex(hkey, updated);
 		return res.json({ success: true, message: 'Key banned.' });
 	} catch (e) {
 		return res.status(500).json({ success: false, message: String(e?.message || e) });
@@ -556,7 +768,10 @@ app.post('/admin/api/licenses/unban', requireAdmin, async (req, res) => {
 	const hkey = licHashKey(key);
 	try {
 		if (!(await redis.exists(hkey))) return res.status(404).json({ success: false, message: 'Key not found.' });
-		await redis.hset(hkey, { banned: '0', resetAt: '' });
+		const record = await redis.hgetall(hkey);
+		const updated = { ...record, key, banned: '0', resetAt: '' };
+		await redis.hset(hkey, updated);
+		await syncLicenseIndex(hkey, updated);
 		return res.json({ success: true, message: 'Key unbanned.' });
 	} catch (e) {
 		return res.status(500).json({ success: false, message: String(e?.message || e) });
@@ -568,6 +783,7 @@ app.delete('/admin/api/licenses', requireAdmin, async (req, res) => {
 	if (!key) return res.status(400).json({ success: false, message: 'key required.' });
 	try {
 		await redis.del(licHashKey(key));
+		await removeLicenseIndex(key);
 		return res.json({ success: true, message: 'Key deleted.' });
 	} catch (e) {
 		return res.status(500).json({ success: false, message: String(e?.message || e) });
@@ -651,7 +867,9 @@ async function start() {
 
 	ensureBundledKeysImported()
 		.then((n) => console.log(`Bundled keys import: ${n ?? 0} new key(s) from keys/`))
-		.catch((e) => console.error('Bundled keys import:', e?.message || e));
+		.then(() => rebuildLicenseIndexes())
+		.then((n) => console.log(`License indexes ready (${n ?? 0} keys indexed)`))
+		.catch((e) => console.error('Startup import/index:', e?.message || e));
 }
 
 start().catch((e) => {

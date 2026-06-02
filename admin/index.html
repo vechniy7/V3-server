@@ -72,6 +72,10 @@
     .hidden { display: none !important; }
     .mono { font-family: Consolas, monospace; font-size: 0.8rem; word-break: break-all; }
     #genOut { max-height: 160px; overflow: auto; background: #1f1f1f; padding: 10px; border-radius: 5px; margin-top: 10px; }
+    .pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
+    .pager button { margin-top: 0; }
+    .loading { opacity: 0.55; pointer-events: none; }
+    #licMeta { font-size: 0.85rem; color: var(--muted); margin: 8px 0 0; min-height: 1.2em; }
   </style>
 </head>
 <body>
@@ -158,10 +162,20 @@
           </select>
         </div>
         <div class="field">
+          <label>На странице</label>
+          <select id="pageSize">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div class="field">
           <button id="btnRefresh">Обновить</button>
+          <button id="btnRebuildIdx" title="Пересобрать индексы Redis">Индексы</button>
         </div>
       </div>
-      <div style="overflow-x:auto">
+      <p id="licMeta"></p>
+      <div style="overflow-x:auto" id="licTableWrap">
         <table>
           <thead>
             <tr>
@@ -176,12 +190,21 @@
           <tbody id="licBody"></tbody>
         </table>
       </div>
+      <div class="pager">
+        <button id="btnPrev">← Назад</button>
+        <button id="btnNext">Вперёд →</button>
+        <span id="pageInfo"></span>
+      </div>
     </div>
     <div id="msg"></div>
   </div>
 
   <script>
     const TOKEN_KEY = 'nexus_admin_token';
+    let licPage = 0;
+    let licLoading = false;
+    let searchTimer = null;
+
     const api = (path, opts = {}) => {
       const token = localStorage.getItem(TOKEN_KEY);
       const headers = { ...(opts.headers || {}), Authorization: 'Bearer ' + token };
@@ -226,43 +249,83 @@
         : 'Релиз не загружен';
     }
 
-    async function refreshLicenses() {
-      const search = document.getElementById('searchKey').value.trim();
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    }
+
+    async function refreshLicenses(resetPage = false) {
+      if (licLoading) return;
+      if (resetPage) licPage = 0;
+
+      const search = document.getElementById('searchKey').value.trim().toUpperCase();
       const status = document.getElementById('filterStatus').value;
-      const q = new URLSearchParams({ limit: '200' });
+      const limit = document.getElementById('pageSize').value;
+
+      const q = new URLSearchParams({ limit, page: String(licPage) });
       if (search) q.set('search', search);
       if (status) q.set('status', status);
-      const d = await api('/admin/api/licenses?' + q);
-      const body = document.getElementById('licBody');
-      body.innerHTML = d.licenses.map((l) => {
-        let st = l.status;
-        if (l.banned) st = 'banned';
-        else if (l.expired) st = 'expired';
-        const tag = l.banned || l.expired ? 'bad' : (l.status === 'active' ? 'ok' : '');
-        const hw = l.hwid ? l.hwid.slice(0, 12) + '…' : '—';
-        const exp = l.expiresAt ? new Date(l.expiresAt).toLocaleString() : '∞';
-        return `<tr>
-          <td class="mono">${l.key}</td>
-          <td>${l.typeLabel || l.type}</td>
-          <td><span class="tag ${tag}">${st}</span></td>
-          <td class="mono">${hw}</td>
-          <td>${exp}</td>
-          <td>
-            <button data-act="reset" data-key="${l.key}">Сброс HWID</button>
-            <button data-act="ban" data-key="${l.key}">Бан</button>
-            <button data-act="del" data-key="${l.key}" class="danger">Удалить</button>
-          </td>
-        </tr>`;
-      }).join('');
+
+      const wrap = document.getElementById('licTableWrap');
+      const meta = document.getElementById('licMeta');
+      licLoading = true;
+      wrap.classList.add('loading');
+      meta.textContent = 'Загрузка…';
+
+      try {
+        const d = await api('/admin/api/licenses?' + q);
+        const body = document.getElementById('licBody');
+        if (!d.licenses.length) {
+          body.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Нет ключей по этому фильтру</td></tr>';
+        } else {
+          body.innerHTML = d.licenses.map((l) => {
+            let st = l.status;
+            if (l.banned) st = 'banned';
+            else if (l.expired) st = 'expired';
+            const tag = l.banned || l.expired ? 'bad' : (l.status === 'active' ? 'ok' : '');
+            const hw = l.hwid ? l.hwid.slice(0, 12) + '…' : '—';
+            const exp = l.expiresAt ? new Date(l.expiresAt).toLocaleString() : '∞';
+            const k = escapeHtml(l.key);
+            return `<tr>
+              <td class="mono">${k}</td>
+              <td>${escapeHtml(l.typeLabel || l.type)}</td>
+              <td><span class="tag ${tag}">${st}</span></td>
+              <td class="mono">${hw}</td>
+              <td>${exp}</td>
+              <td>
+                <button data-act="reset" data-key="${k}">Сброс HWID</button>
+                <button data-act="ban" data-key="${k}">Бан</button>
+                <button data-act="del" data-key="${k}" class="danger">Удалить</button>
+              </td>
+            </tr>`;
+          }).join('');
+        }
+
+        const total = d.total || 0;
+        const from = total ? d.page * d.limit + 1 : 0;
+        const to = Math.min((d.page + 1) * d.limit, total);
+        meta.textContent = total
+          ? `Показано ${from}–${to} из ${total}`
+          : 'Нет данных';
+        document.getElementById('pageInfo').textContent = total
+          ? `Страница ${d.page + 1} / ${Math.max(1, Math.ceil(total / d.limit))}`
+          : '';
+
+        document.getElementById('btnPrev').disabled = d.page <= 0;
+        document.getElementById('btnNext').disabled = !d.hasMore;
+      } finally {
+        licLoading = false;
+        wrap.classList.remove('loading');
+      }
     }
 
     async function refreshAll() {
       try {
         await refreshStats();
-        await refreshLicenses();
+        await refreshLicenses(true);
         msg('', true);
       } catch (e) {
         msg(e.message, false);
+        document.getElementById('licMeta').textContent = '';
       }
     }
 
@@ -295,7 +358,8 @@
         out.classList.remove('hidden');
         out.textContent = d.keys.map((k) => k.key).join('\n');
         msg('Создано ключей: ' + d.count, true);
-        refreshAll();
+        await refreshStats();
+        await refreshLicenses(true);
       } catch (e) {
         msg(e.message, false);
       }
@@ -341,6 +405,32 @@
 
     document.getElementById('btnRefresh').onclick = () => refreshAll();
 
+    document.getElementById('btnPrev').onclick = () => {
+      if (licPage > 0) { licPage--; refreshLicenses(); }
+    };
+    document.getElementById('btnNext').onclick = () => {
+      licPage++; refreshLicenses();
+    };
+
+    document.getElementById('filterStatus').onchange = () => refreshLicenses(true);
+    document.getElementById('pageSize').onchange = () => refreshLicenses(true);
+    document.getElementById('searchKey').oninput = () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => refreshLicenses(true), 350);
+    };
+
+    document.getElementById('btnRebuildIdx').onclick = async () => {
+      if (!confirm('Пересобрать индексы ключей? (1–2 мин на 4000 ключей)')) return;
+      try {
+        msg('Пересборка индексов…', true);
+        const d = await api('/admin/api/licenses/rebuild-index', { method: 'POST' });
+        msg('Индексы обновлены: ' + (d.indexed || 0) + ' ключей', true);
+        refreshAll();
+      } catch (e) {
+        msg(e.message, false);
+      }
+    };
+
     document.getElementById('licBody').onclick = async (ev) => {
       const btn = ev.target.closest('button[data-act]');
       if (!btn) return;
@@ -358,7 +448,8 @@
           await api('/admin/api/licenses', { method: 'DELETE', body: { key } });
           msg('Удалено', true);
         }
-        refreshAll();
+        await refreshStats();
+        await refreshLicenses(false);
       } catch (e) {
         msg(e.message, false);
       }
