@@ -18,7 +18,7 @@ const ADMIN_DIR = path.join(__dirname, 'admin');
 
 const ADMIN_RESET_TOKEN = process.env.ADMIN_RESET_TOKEN || '';
 const PREFIX = process.env.REDIS_PREFIX || 'nexus:v3';
-const IMPORT_FLAG_KEY = `${PREFIX}:imported:bundled:v2`;
+const IMPORT_FLAG_KEY = `${PREFIX}:imported:bundled:v3`;
 const BUNDLED_KEY_FILES = [
 	{ file: 'trial_2m.json', type: 'trial_2m' },
 	{ file: 'month_1.json', type: 'month_1' },

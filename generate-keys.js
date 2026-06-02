@@ -11,10 +11,10 @@ const KEYS_DIR = path.join(__dirname, 'keys');
 const CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const PLANS = [
-	{ id: 'trial_2m', prefix: PLAN_PREFIX.trial_2m, count: 20, json: 'trial_2m.json', txt: 'trial_2m.txt' },
-	{ id: 'month_1', prefix: PLAN_PREFIX.month_1, count: 100, json: 'month_1.json', txt: 'month_1.txt' },
-	{ id: 'month_3', prefix: PLAN_PREFIX.month_3, count: 100, json: 'month_3.json', txt: 'month_3.txt' },
-	{ id: 'lifetime', prefix: PLAN_PREFIX.lifetime, count: 500, json: 'lifetime.json', txt: 'lifetime.txt' },
+	{ id: 'trial_2m', prefix: PLAN_PREFIX.trial_2m, count: 1000, json: 'trial_2m.json', txt: 'trial_2m.txt' },
+	{ id: 'month_1', prefix: PLAN_PREFIX.month_1, count: 1000, json: 'month_1.json', txt: 'month_1.txt' },
+	{ id: 'month_3', prefix: PLAN_PREFIX.month_3, count: 1000, json: 'month_3.json', txt: 'month_3.txt' },
+	{ id: 'lifetime', prefix: PLAN_PREFIX.lifetime, count: 1000, json: 'lifetime.json', txt: 'lifetime.txt' },
 ];
 
 function randomSegment(length) {

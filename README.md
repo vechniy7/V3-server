@@ -60,10 +60,10 @@ Key types: `trial_2m`, `month_1`, `month_3`, `lifetime`
 
 | File | Type | Count |
 |------|------|-------|
-| `trial_2m.json` / `.txt` | 2 min test (`NXS-T2-...`) | 20 |
-| `month_1.json` / `.txt` | 1 month (`NXS-1M-...`) | 100 |
-| `month_3.json` / `.txt` | 3 months (`NXS-3M-...`) | 100 |
-| `lifetime.json` / `.txt` | Lifetime (`NXS-L-...`) | 500 |
+| `trial_2m.json` / `.txt` | 2 min test (`NXS-T2-...`) | 1000 |
+| `month_1.json` / `.txt` | 1 month (`NXS-1M-...`) | 1000 |
+| `month_3.json` / `.txt` | 3 months (`NXS-3M-...`) | 1000 |
+| `lifetime.json` / `.txt` | Lifetime (`NXS-L-...`) | 1000 |
 
 `.txt` — one key per line (for distribution).  
 `.json` — database with status/HWID (committed to repo).
