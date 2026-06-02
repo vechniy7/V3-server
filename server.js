@@ -177,9 +177,53 @@ async function activateLicense(licKey, hwid, autoLogin) {
 	return { code: 'unknown', status: record.status };
 }
 
+async function importBundledChunk(records, type) {
+	let imported = 0;
+	const CHUNK = 50;
+
+	for (let i = 0; i < records.length; i += CHUNK) {
+		const slice = records.slice(i, i + CHUNK);
+		const entries = [];
+
+		for (const record of slice) {
+			const key = normalizeKey(record.key);
+			if (!key) continue;
+			entries.push({ key, hkey: licHashKey(key), record });
+		}
+		if (entries.length === 0) continue;
+
+		const existsPipe = redis.pipeline();
+		for (const e of entries) existsPipe.exists(e.hkey);
+		const existsResults = await existsPipe.exec();
+
+		const writePipe = redis.pipeline();
+		for (let j = 0; j < entries.length; j++) {
+			const existed = existsResults?.[j];
+			if (existed) continue;
+
+			const { key, hkey, record } = entries[j];
+			const status = record.status === 'active' ? 'active' : 'unused';
+			writePipe.hset(hkey, {
+				key,
+				type: record.type && isValidPlanType(record.type) ? record.type : type,
+				status,
+				hwid: status === 'active' && record.hwid ? normalizeHwid(record.hwid) : '',
+				activatedAt: status === 'active' && record.activatedAt ? String(record.activatedAt) : '',
+				expiresAt: status === 'active' && record.expiresAt ? String(record.expiresAt) : '',
+				resetAt: '',
+				banned: '0',
+			});
+			imported++;
+		}
+		await writePipe.exec();
+	}
+
+	return imported;
+}
+
 async function ensureBundledKeysImported() {
 	const already = await redis.get(IMPORT_FLAG_KEY);
-	if (already) return;
+	if (already) return 0;
 
 	let imported = 0;
 
@@ -190,28 +234,7 @@ async function ensureBundledKeysImported() {
 		const records = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 		if (!Array.isArray(records)) continue;
 
-		const type = bundle.type;
-
-		for (const record of records) {
-			const key = normalizeKey(record.key);
-			if (!key) continue;
-			const hkey = licHashKey(key);
-			const exists = await redis.exists(hkey);
-			if (!exists) {
-				const status = record.status === 'active' ? 'active' : 'unused';
-				await redis.hset(hkey, {
-					key,
-					type: record.type && isValidPlanType(record.type) ? record.type : type,
-					status,
-					hwid: status === 'active' && record.hwid ? normalizeHwid(record.hwid) : '',
-					activatedAt: status === 'active' && record.activatedAt ? String(record.activatedAt) : '',
-					expiresAt: status === 'active' && record.expiresAt ? String(record.expiresAt) : '',
-					resetAt: '',
-					banned: '0',
-				});
-				imported++;
-			}
-		}
+		imported += await importBundledChunk(records, bundle.type);
 	}
 
 	await redis.set(IMPORT_FLAG_KEY, String(imported));
