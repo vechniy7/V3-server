@@ -56,6 +56,28 @@ URL: `/admin`
 
 Key types: `trial_2m`, `month_1`, `month_3`, `lifetime`
 
+## Bundled keys (`keys/`)
+
+| File | Type | Count |
+|------|------|-------|
+| `trial_2m.json` / `.txt` | 2 min test (`NXS-T2-...`) | 20 |
+| `month_1.json` / `.txt` | 1 month (`NXS-1M-...`) | 100 |
+| `month_3.json` / `.txt` | 3 months (`NXS-3M-...`) | 100 |
+| `lifetime.json` / `.txt` | Lifetime (`NXS-L-...`) | 500 |
+
+`.txt` — one key per line (for distribution).  
+`.json` — database with status/HWID (committed to repo).
+
+On first start after deploy, all files are imported into Upstash Redis once (flag `imported:bundled:v2`).
+
+Regenerate locally:
+
+```bash
+npm run generate-keys
+```
+
+Then commit `keys/` and push.
+
 ## Local
 
 ```bash
@@ -63,12 +85,6 @@ cd V3-server-main
 npm install
 # set UPSTASH_* and ADMIN_RESET_TOKEN
 npm start
-```
-
-Generate offline key files:
-
-```bash
-npm run generate-keys
 ```
 
 ## Client

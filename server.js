@@ -18,7 +18,13 @@ const ADMIN_DIR = path.join(__dirname, 'admin');
 
 const ADMIN_RESET_TOKEN = process.env.ADMIN_RESET_TOKEN || '';
 const PREFIX = process.env.REDIS_PREFIX || 'nexus:v3';
-const IMPORT_FLAG_KEY = `${PREFIX}:imported:lifetime:v1`;
+const IMPORT_FLAG_KEY = `${PREFIX}:imported:bundled:v2`;
+const BUNDLED_KEY_FILES = [
+	{ file: 'trial_2m.json', type: 'trial_2m' },
+	{ file: 'month_1.json', type: 'month_1' },
+	{ file: 'month_3.json', type: 'month_3' },
+	{ file: 'lifetime.json', type: 'lifetime' },
+];
 const LIC_PREFIX = `${PREFIX}:lic`;
 const RELEASE_META_KEY = `${PREFIX}:release:meta`;
 const RELEASE_CHUNK_PREFIX = `${PREFIX}:release:chunk`;
@@ -171,36 +177,45 @@ async function activateLicense(licKey, hwid, autoLogin) {
 	return { code: 'unknown', status: record.status };
 }
 
-async function ensureLifetimeKeysImported() {
+async function ensureBundledKeysImported() {
 	const already = await redis.get(IMPORT_FLAG_KEY);
 	if (already) return;
 
-	const filePath = path.join(BUNDLED_KEYS_DIR, 'lifetime.json');
-	if (!fs.existsSync(filePath)) return;
+	let imported = 0;
 
-	const records = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-	if (!Array.isArray(records)) return;
+	for (const bundle of BUNDLED_KEY_FILES) {
+		const filePath = path.join(BUNDLED_KEYS_DIR, bundle.file);
+		if (!fs.existsSync(filePath)) continue;
 
-	for (const record of records) {
-		const key = normalizeKey(record.key);
-		if (!key) continue;
-		const hkey = licHashKey(key);
-		const exists = await redis.exists(hkey);
-		if (!exists) {
-			const status = record.status === 'active' ? 'active' : 'unused';
-			await redis.hset(hkey, {
-				key,
-				type: 'lifetime',
-				status,
-				hwid: status === 'active' && record.hwid ? normalizeHwid(record.hwid) : '',
-				activatedAt: status === 'active' && record.activatedAt ? String(record.activatedAt) : '',
-				expiresAt: '',
-				resetAt: '',
-				banned: '0',
-			});
+		const records = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+		if (!Array.isArray(records)) continue;
+
+		const type = bundle.type;
+
+		for (const record of records) {
+			const key = normalizeKey(record.key);
+			if (!key) continue;
+			const hkey = licHashKey(key);
+			const exists = await redis.exists(hkey);
+			if (!exists) {
+				const status = record.status === 'active' ? 'active' : 'unused';
+				await redis.hset(hkey, {
+					key,
+					type: record.type && isValidPlanType(record.type) ? record.type : type,
+					status,
+					hwid: status === 'active' && record.hwid ? normalizeHwid(record.hwid) : '',
+					activatedAt: status === 'active' && record.activatedAt ? String(record.activatedAt) : '',
+					expiresAt: status === 'active' && record.expiresAt ? String(record.expiresAt) : '',
+					resetAt: '',
+					banned: '0',
+				});
+				imported++;
+			}
 		}
 	}
-	await redis.set(IMPORT_FLAG_KEY, '1');
+
+	await redis.set(IMPORT_FLAG_KEY, String(imported));
+	return imported;
 }
 
 async function scanAllLicenses(limit = 500) {
@@ -611,8 +626,8 @@ async function start() {
 		console.log(`Admin panel: http://localhost:${PORT}/admin`);
 	});
 
-	ensureLifetimeKeysImported()
-		.then(() => console.log('Bundled lifetime keys import: OK'))
+	ensureBundledKeysImported()
+		.then((n) => console.log(`Bundled keys import: ${n ?? 0} new key(s) from keys/`))
 		.catch((e) => console.error('Bundled keys import:', e?.message || e));
 }
 

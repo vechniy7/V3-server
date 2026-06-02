@@ -1,0 +1,802 @@
+[
+  {
+    "key": "NXS-1M-PPLX-JA6E-4Z24-X3VF",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-KCZR-3RTL-B6D2-27UZ",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-LVSM-55LA-ZJRB-AP2M",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-XM4P-G9CR-4DBL-YMWY",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-G9QY-85KV-YPWC-8NL5",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-7C6W-379M-HS6A-NDJ6",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-KS5N-4AYC-Z7ZL-ZQGE",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-Z2SH-TCVC-QQQL-UYVY",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-R7PY-9PAC-DHQY-NMWT",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-N4LZ-USPL-4MLK-D5FR",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-55NC-NNVL-JNA3-BAXG",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-QYK3-Z2C7-L9Z9-49Q2",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-R6PV-ZQQ9-TEYV-RVT6",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-VY7Z-CQRV-HFXR-4QJ8",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-WK6C-LKWA-FESB-7LPX",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-FNE8-6GJK-3FLK-Z8YW",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-NJV7-NHGN-VSL8-8C3A",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-G7FG-BRXD-KSAE-3GNG",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-VZGG-ZEBC-MK7N-A7JU",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-WGT6-VHV3-75QY-YKZW",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-S47V-RRGJ-ZA9H-U89J",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-J79A-3YNF-DJ47-G85A",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-A4RW-GFY2-X6JA-S4C6",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-KDGV-WSVS-FWXL-CYWJ",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-X9DB-DVWH-UC2K-FJSC",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-EV7R-34PU-ZP7A-C8J7",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-2K4X-8ZSL-EAQW-CQL9",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-GSLB-7BJ2-7VRA-KX2J",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-AQBT-PY7V-AK2Y-EJ5U",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-FKLH-4U9Y-BKLZ-LGZ2",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-6D44-3BXM-8JUV-MSFU",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-HV88-JHTQ-UBCD-UYET",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-LSGA-UDSQ-EV3S-SQKL",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-SSQD-RK8E-P8MH-3FQ4",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-DRCG-4A2F-BRAP-C35Q",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-TKHN-Y8CE-WPMP-9HXG",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-R8HB-2NA4-XQD9-3GWX",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-NYQK-CM8P-99D6-WU42",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-QUFW-JU36-QZZY-M2RH",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-QS78-66ME-TKGN-RBPD",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-MR3V-4LHC-AF6L-CW6U",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-9FV3-7T7E-CDU5-9HDS",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-YE4R-8BM8-LJLR-AGXB",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-2GP4-R372-Q98K-UUVU",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-F36D-VLK7-5Z9G-ZJUU",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-VHNC-YG3N-2E85-SXJC",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-39JR-LV9R-XV46-U33C",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-P7GX-KWSV-7K64-N3WC",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-5KUA-XX2B-SMSW-3N53",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-TQ7B-SGSZ-6XRL-9RWM",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-788V-YNTQ-HNGK-EQ2J",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-HNVT-SJUK-7EEV-AR8M",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-TT9J-623L-JPZD-4FU7",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-Z2G2-7GXA-BHMC-2HYL",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-SB7C-E6WF-QUEH-YWJM",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-ZHR7-9F3P-EUF3-CXHN",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-VKAN-MG2M-8DHA-85KG",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-TYW5-9ACZ-3KYF-5R36",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-73PQ-HEKH-E9N7-KNUT",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-46SU-DWDM-4GP7-VWFY",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-3YXX-XVUA-2VGA-4DS8",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-5D3J-VTY5-LTP6-FERC",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-JHDV-Q8ED-LXPK-F7WA",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-97BA-7PF8-ZVP9-QEJE",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-GXCR-BUS6-SD5D-SAC6",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-PCXJ-NQFF-TGKX-GZ74",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-L95N-TDMR-BXBN-7PU5",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-6ZRN-XJ8G-SGBZ-PEKL",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-FJ55-AVB6-AVBV-2QHJ",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-ESYF-2K33-YX3J-VYMA",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-QL8N-72Y7-HGPL-N44E",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-YHXM-FFX8-M7B8-NYRE",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-9TT4-E8WQ-4YWM-UUAW",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-U26V-J3RQ-J7FX-DGSD",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-QQMJ-F2EN-3468-A5MH",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-W5R5-JF66-F7NZ-74ZQ",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-CLNY-L44G-NEXX-847M",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-9YQ2-9YTG-7QQV-QV79",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-EY6X-Y8G5-HRAY-JC7J",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-S77X-KQVG-2F9P-8RPR",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-G3Q7-P5K7-CGNZ-9EHL",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-DGA6-HC2M-FTVK-53Q4",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-W85M-LHD4-ZAYJ-377S",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-EJT6-R4MK-8ETG-HVZB",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-MGUF-LZTG-XYWR-NQZ3",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-UUCF-63JV-4WGH-NXGA",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-PL7H-38NF-6F4V-6B3E",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-7NN7-AQYX-HJ4V-2RUC",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-T7WV-3T9W-L5YL-HMSS",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-53NV-MHKL-P4SP-5M4Y",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-8RCK-ZSK2-NH3S-D6HY",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-XCBU-GY64-77R5-NV9Z",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-URQX-ACSK-9JPN-N6F9",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-2SUW-ZA33-DV9U-4EUG",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-MPG3-UY8K-QWG6-AZ6D",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-H72V-89SK-VBZC-N3BX",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-RZ4S-FD3N-62ES-BE4Q",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-RVMJ-JWHG-2JR2-B4X6",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-9Y6K-9WBQ-TJ45-V2U9",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  },
+  {
+    "key": "NXS-1M-ERTB-ZFYX-X52D-P22W",
+    "type": "month_1",
+    "status": "unused",
+    "hwid": null,
+    "activatedAt": null,
+    "expiresAt": null
+  }
+]
