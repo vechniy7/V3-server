@@ -542,6 +542,7 @@ app.post('/activate', async (req, res) => {
 			} catch (_) { /* ignore */ }
 			const payload = {
 				success: true,
+				code: result.code,
 				message: result.code === 'activated' ? 'Key activated successfully.' : 'License valid.',
 				type: result.type,
 				expiresAt: result.expiresAt,
