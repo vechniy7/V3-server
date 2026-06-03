@@ -55,6 +55,16 @@ function normalizeKey(key) {
 	return String(key || '').trim().toUpperCase();
 }
 
+/** Must match Protect.cpp AuthSecret() + activation payload format. */
+function activationSig(key, hwid, resultCode) {
+	const secret = process.env.CLIENT_AUTH_SECRET || ADMIN_RESET_TOKEN;
+	if (!secret) return null;
+	return crypto
+		.createHash('sha256')
+		.update(`${secret}|${normalizeKey(key)}|${normalizeHwid(hwid)}|${resultCode}`)
+		.digest('hex');
+}
+
 function isValidHwid(hwid) {
 	return /^[a-f0-9]{64}$/.test(hwid);
 }
@@ -530,12 +540,15 @@ app.post('/activate', async (req, res) => {
 			try {
 				await redis.incr(STATS_KEY);
 			} catch (_) { /* ignore */ }
-			return res.json({
+			const payload = {
 				success: true,
 				message: result.code === 'activated' ? 'Key activated successfully.' : 'License valid.',
 				type: result.type,
 				expiresAt: result.expiresAt,
-			});
+			};
+			const sig = activationSig(key, hwid, result.code);
+			if (sig) payload.sig = sig;
+			return res.json(payload);
 		}
 
 		logActivation({ ...baseLog, success: false, reason: 'unknown', httpStatus: 500, detail: result });

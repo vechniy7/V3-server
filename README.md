@@ -11,6 +11,7 @@ Backend for **Nexus** cheat: license keys (Upstash Redis), admin panel, remote u
 | `UPSTASH_REDIS_REST_URL` | From Upstash console |
 | `UPSTASH_REDIS_REST_TOKEN` | From Upstash console |
 | `ADMIN_RESET_TOKEN` | Long random secret for admin API & panel login |
+| `CLIENT_AUTH_SECRET` | Same value as `AuthSecret()` in `Protect.cpp` (Release); signs `/activate` responses |
 | `REDIS_PREFIX` | Optional, default `nexus:v3` |
 | `PORT` | Set by Render automatically |
 
